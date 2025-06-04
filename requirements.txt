@@ -2,3 +2,5 @@ opencv-python==4.11.0
 torch==2.7.0
 torchvision==0.22.0
 yt-dlp==2025.5.22
+matplotlib==3.10.3
+tqdm==4.67.1

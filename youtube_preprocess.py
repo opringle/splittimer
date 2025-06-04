@@ -85,9 +85,13 @@ def main():
     
     resize_size = tuple(args.resolution)
     preprocess = transforms.Compose([
+        # Converting it to a PIL Image for compatibility with spatial transformations.
         transforms.ToPILImage(),
+        # Resizing it to the model’s required dimensions.
         transforms.Resize(resize_size),
+        # Transforming it into a PyTorch tensor for computation.
         transforms.ToTensor(),
+        # Normalizing it to match the data distribution the model was trained on (e.g., ImageNet).
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
