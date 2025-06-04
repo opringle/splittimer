@@ -8,18 +8,27 @@ import yt_dlp
 import re
 
 def download_youtube_video(url, output_path):
-    """Download a YouTube video to the specified output path."""
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': os.path.join(output_path, 'temp_video.mp4'),
-    }
+    """Download a YouTube video to the specified output path using the video title."""
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_path = os.path.join(output_path, 'temp_video.mp4')
-            return video_path, info['title']
+        with yt_dlp.YoutubeDL() as ydl:
+            info = ydl.extract_info(url, download=False)  # Get info without downloading
+            title = info['title']
+            processed_title = re.sub(r'[^a-zA-Z0-9 ]', '', title).lower().replace(' ', '_')
+            video_path = os.path.join(output_path, f'{processed_title}.mp4')
+            
+            if os.path.exists(video_path):
+                print(f"Video file already exists at {video_path}, skipping download.")
+                return video_path, processed_title
+            
+            ydl_opts = {
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'outtmpl': video_path,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+                return video_path, processed_title
     except Exception as e:
-        print(f"Error downloading video: {e}")
+        print(f"Error downloading video or retrieving metadata: {e}")
         return None, None
 
 def preprocess_frame(frame, preprocess):
@@ -43,7 +52,6 @@ def process_and_save_clips(video_path, output_dir, preprocess, clip_duration_sec
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frames_per_clip = int(clip_duration_seconds * video_fps)
     
-    # Prepare split labels
     if split_indices is None:
         split_indices = []
     split_set = set(split_indices)
@@ -84,7 +92,6 @@ def process_and_save_clips(video_path, output_dir, preprocess, clip_duration_sec
         
         frame_idx += 1
     
-    # Handle the last clip
     if frame_buffer:
         clip_array = np.array(frame_buffer)
         label_array = np.array(label_buffer, dtype=np.float32)
@@ -106,10 +113,12 @@ def main():
     parser.add_argument("--resolution", type=int, nargs=2, default=[224,224], help="Resolution for preprocessing, width and height")
     parser.add_argument("--output_dir", type=str, default="processed_clips", help="Output directory for processed clips")
     parser.add_argument("--split-times", type=float, nargs='*', default=[], help="Timestamps (in seconds) to mark as split points (labeled 1.0)")
+    parser.add_argument("--keep-video", action="store_true", help="Keep the downloaded video file after processing")
     args = parser.parse_args()
     
     print(f"Using resolution: {args.resolution[0]}x{args.resolution[1]}")
     print(f"Split timestamps: {args.split_times} seconds")
+    print(f"Keep video file: {args.keep_video}")
     
     resize_size = tuple(args.resolution)
     preprocess = transforms.Compose([
@@ -124,9 +133,9 @@ def main():
         os.makedirs(video_output_path)
     
     video_path, title = download_youtube_video(args.url, video_output_path)
+    print(f"title={title}")
     
     if video_path and title:
-        # Convert timestamps to frame indices
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             print("Error opening video file for FPS check")
@@ -137,16 +146,20 @@ def main():
         
         split_indices = [int(timestamp * video_fps) for timestamp in args.split_times]
         
-        processed_title = re.sub(r'[^a-zA-Z0-9 ]', '', title).lower().replace(' ', '_')
-        full_output_dir = os.path.join(args.output_dir, processed_title)
+        full_output_dir = os.path.join(args.output_dir, title)
         print(f"Saving clips and labels to {full_output_dir}")
         
         process_and_save_clips(video_path, full_output_dir, preprocess, split_indices=split_indices)
         
-        os.remove(video_path)
+        if not args.keep_video:
+            os.remove(video_path)
+            print(f"Deleted video file: {video_path}")
+        else:
+            print(f"Kept video file at: {video_path}")
+        
         print("Processing complete!")
     else:
-        print("Failed to download video")
+        print("Failed to download video or retrieve metadata")
 
 if __name__ == "__main__":
     main()
