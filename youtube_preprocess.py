@@ -106,12 +106,10 @@ def main():
     parser.add_argument("--resolution", type=int, nargs=2, default=[224,224], help="Resolution for preprocessing, width and height")
     parser.add_argument("--output_dir", type=str, default="processed_clips", help="Output directory for processed clips")
     parser.add_argument("--split-times", type=float, nargs='*', default=[], help="Timestamps (in seconds) to mark as split points (labeled 1.0)")
-    parser.add_argument("--keep-video", action="store_true", help="Keep the downloaded video file after processing")
     args = parser.parse_args()
     
     print(f"Using resolution: {args.resolution[0]}x{args.resolution[1]}")
     print(f"Split timestamps: {args.split_times} seconds")
-    print(f"Keep video file: {args.keep_video}")
     
     resize_size = tuple(args.resolution)
     preprocess = transforms.Compose([
@@ -145,12 +143,7 @@ def main():
         
         process_and_save_clips(video_path, full_output_dir, preprocess, split_indices=split_indices)
         
-        if not args.keep_video:
-            os.remove(video_path)
-            print(f"Deleted video file: {video_path}")
-        else:
-            print(f"Kept video file at: {video_path}")
-        
+        os.remove(video_path)
         print("Processing complete!")
     else:
         print("Failed to download video")
