@@ -8,7 +8,9 @@ import yaml
 
 def download_youtube_video(url, output_path, track_id, rider_id):
     """Download a YouTube video using track_id and rider_id for naming."""
-    video_path = os.path.join(output_path, f'{track_id}_{rider_id}.mp4')
+    video_dir = os.path.join(output_path, track_id, rider_id)
+    os.makedirs(video_dir, exist_ok=True)
+    video_path = os.path.join(video_dir, f'{track_id}_{rider_id}.mp4')
     if os.path.exists(video_path):
         print(f"Video file already exists at {video_path}, skipping download.")
         return video_path
