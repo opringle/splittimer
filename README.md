@@ -3,7 +3,7 @@
 
 - [x] download youtube videos and create X,Y pairs containing preprocessed frames and labelled splits
 - [x] compute resnet50 features for all clips and store on disk
-- [ ] try simply finding the frame with the highest cosine similarity
+- [x] try simply finding the frame with the highest cosine similarity - doesn't work well
 - [ ] efficiently generate training data from splits
 - [ ] train an MLP and compute F1 score per label
 
@@ -54,4 +54,10 @@ Use cosine similarity to predict the split frame in the target video (Vali's run
 
 ```bash
 python find_splits.py processed_clips/gopro_amaury_pierron_takes_2nd_and_overall_points_lead__loudenvielle__25_uci_dh_mtb_world_cup processed_clips/gopro_vali_holl_takes_2nd_place__loudenvielle__25_uci_dh_mtb_world_cup
+```
+
+Generate training data for dedicated model
+
+```bash
+python generate_training_samples.py processed_clips/gopro_amaury_pierron_takes_2nd_and_overall_points_lead__loudenvielle__25_uci_dh_mtb_world_cup processed_clips/gopro_vali_holl_takes_2nd_place__loudenvielle__25_uci_dh_mtb_world_cup
 ```
