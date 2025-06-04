@@ -4,8 +4,10 @@
 - [x] download youtube videos and create X,Y pairs containing preprocessed frames and labelled splits
 - [x] compute resnet50 features for all clips and store on disk
 - [x] try simply finding the frame with the highest cosine similarity - doesn't work well
-- [ ] efficiently generate training data from splits
-- [ ] train an MLP and compute F1 score per label
+- [ ] intelligently generate training data from splits https://grok.com/share/bGVnYWN5_b89bd234-5e76-4ca3-9ef3-3dd2c1054768 
+- [ ] train a dedicated model
+- [ ] refactor the code to allow different model types (resnet cosine similarity, mlp on resnet features etc)
+- [ ] keep refining until accuracy is 100% on unseen videos
 
 ## Prerequisites
 
