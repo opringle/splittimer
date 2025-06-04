@@ -1,6 +1,9 @@
 
 ## Prerequisites
 
+- install pyenv
+- configure python environment
+
 ```bash
 pyenv install 3.12
 
@@ -9,6 +12,12 @@ pyenv virtualenv 3.12 splittimer
 pyenv local splittimer
 
 pip install -r ./requirements.txt
+```
+
+- install ffmpeg
+
+```bash
+brew install ffmpeg
 ```
 
 ## Preprocess GoPro runs

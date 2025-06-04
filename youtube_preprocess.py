@@ -1,28 +1,34 @@
 import cv2
 import numpy as np
-from pytube import YouTube
 import os
 from torchvision import transforms
 import torch
 import argparse
+import yt_dlp
+import re
 
 def download_youtube_video(url, output_path):
+    """Download a YouTube video to the specified output path."""
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': os.path.join(output_path, 'temp_video.mp4'),
+    }
     try:
-        yt = YouTube(url)
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-        if not stream:
-            raise Exception("No suitable video stream found")
-        stream.download(output_path=output_path, filename='temp_video.mp4')
-        return os.path.join(output_path, 'temp_video.mp4')
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            video_path = os.path.join(output_path, 'temp_video.mp4')
+            return video_path, info['title']
     except Exception as e:
         print(f"Error downloading video: {e}")
-        return None
+        return None, None
 
 def preprocess_frame(frame, preprocess):
+    """Preprocess a single video frame."""
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     return preprocess(frame_rgb).numpy()
 
-def process_and_save_clips(video_path, output_dir, preprocess, clip_duration=5, fps=30):
+def process_and_save_clips(video_path, output_dir, preprocess, clip_duration_seconds=5):
+    """Process the video into clips and save them as numpy arrays."""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
@@ -32,9 +38,10 @@ def process_and_save_clips(video_path, output_dir, preprocess, clip_duration=5, 
         return
     
     video_fps = cap.get(cv2.CAP_PROP_FPS)
+    assert video_fps == 25.0, f"Video fps {video_fps} is not 25.0, cannot process."
+    
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = frame_count / video_fps
-    frames_per_clip = int(clip_duration * fps)
+    frames_per_clip = int(clip_duration_seconds * video_fps)
     
     clip_idx = 0
     frame_buffer = []
@@ -45,26 +52,25 @@ def process_and_save_clips(video_path, output_dir, preprocess, clip_duration=5, 
         if not ret:
             break
         
-        if frame_idx % int(video_fps / fps) == 0:  # Sample frames to match target fps
-            processed_frame = preprocess_frame(frame, preprocess)
-            frame_buffer.append(processed_frame)
+        processed_frame = preprocess_frame(frame, preprocess)
+        frame_buffer.append(processed_frame)
         
         if len(frame_buffer) >= frames_per_clip:
             clip_array = np.array(frame_buffer)
             clip_path = os.path.join(output_dir, f'clip_{clip_idx:04d}.npy')
             np.save(clip_path, clip_array)
-            print(f"Saved clip {clip_idx} to {clip_path}")
+            print(f"Saved clip {clip_idx} to {clip_path} with shape {clip_array.shape}")
             frame_buffer = []
             clip_idx += 1
         
         frame_idx += 1
     
-    # Save remaining frames as a final clip
+    # handle the last clip
     if frame_buffer:
         clip_array = np.array(frame_buffer)
         clip_path = os.path.join(output_dir, f'clip_{clip_idx:04d}.npy')
         np.save(clip_path, clip_array)
-        print(f"Saved clip {clip_idx} to {clip_path}")
+        print(f"Saved clip {clip_idx} to {clip_path} with shape {clip_array.shape}")
     
     cap.release()
 
@@ -85,12 +91,25 @@ def main():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
-    video_path = download_youtube_video(args.url, ".")
+    # Set up the video download directory
+    video_output_path = "downloaded_videos"
+    if not os.path.exists(video_output_path):
+        os.makedirs(video_output_path)
     
-    if video_path:
-        print("Processing video...")
-        process_and_save_clips(video_path, args.output_dir, preprocess)
-        os.remove(video_path)  # Clean up temporary video file
+    # Download the video to downloaded_videos directory
+    video_path, title = download_youtube_video(args.url, video_output_path)
+    
+    if video_path and title:
+        # Prepare the output directory for clips
+        processed_title = re.sub(r'[^a-zA-Z0-9 ]', '', title).lower().replace(' ', '_')
+        full_output_dir = os.path.join(args.output_dir, processed_title)
+        print(f"Saving clips to {full_output_dir}")
+        
+        # Process the video and save clips
+        process_and_save_clips(video_path, full_output_dir, preprocess)
+        
+        # Clean up the temporary video file
+        os.remove(video_path)
         print("Processing complete!")
     else:
         print("Failed to download video")

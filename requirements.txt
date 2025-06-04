@@ -1,4 +1,4 @@
 opencv-python==4.11.0
-pytube2==15.0.12
 torch==2.7.0
 torchvision==0.22.0
+yt-dlp==2025.5.22
