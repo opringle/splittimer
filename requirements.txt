@@ -4,3 +4,4 @@ torchvision==0.22.0
 yt-dlp==2025.5.22
 matplotlib==3.10.3
 tqdm==4.67.1
+PyYAML==6.0.2

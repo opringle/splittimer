@@ -67,8 +67,8 @@ def get_clip_ending_at(frame_idx, frames, features, clip_length, total_frames):
         clip_features = np.concatenate([padding_features, clip_features], axis=0)
     return clip_frames, clip_features
 
-def generate_training_samples(v1_frames, v1_features, v1_labels, v1_indices, v2_frames, v2_features, v2_labels, v2_indices, clip_length=125, max_negatives_per_split=10):
-    """Generate training samples with clips and features from both videos."""
+def generate_training_samples(v1_frames, v1_features, v1_labels, v1_indices, v2_frames, v2_features, v2_labels, v2_indices, clip_length=125, max_negatives_per_split=10, num_augmented_per_segment=5):
+    """Generate training samples with clips and features from both videos, including augmented samples biased towards split points."""
     # Find split points
     v1_split_indices = v1_indices[v1_labels == 1.0]
     v2_split_indices = v2_indices[v2_labels == 1.0]
@@ -77,9 +77,9 @@ def generate_training_samples(v1_frames, v1_features, v1_labels, v1_indices, v2_
         print("Error: No split points found in one or both videos.")
         return None, None, None, None, None
     
-    # Map split indices to positions
-    v1_split_positions = {idx: pos for pos, idx in enumerate(v1_split_indices)}
-    v2_split_positions = {idx: pos for pos, idx in enumerate(v2_split_indices)}
+    if len(v1_split_indices) != len(v2_split_indices):
+        print("Error: Number of split points in video 1 and video 2 do not match.")
+        return None, None, None, None, None
     
     v1_total_frames = len(v1_frames)
     v2_total_frames = len(v2_frames)
@@ -91,47 +91,104 @@ def generate_training_samples(v1_frames, v1_features, v1_labels, v1_indices, v2_
     sample_labels = []
     sample_indices = []
     
-    # For each split in video 1
-    for v1_split_idx in v1_split_indices:
-        v1_pos = v1_split_positions[v1_split_idx]
+    # Generate samples at split points (original logic)
+    for pos, v1_split_idx in enumerate(v1_split_indices):
+        v2_split_idx = v2_split_indices[pos]
         
-        # Get video 1 clip ending at this split
         v1_clip, v1_features_clip = get_clip_ending_at(v1_split_idx, v1_frames, v1_features, clip_length, v1_total_frames)
-        if v1_clip is None:
-            continue
+        v2_clip, v2_features_clip = get_clip_ending_at(v2_split_idx, v2_frames, v2_features, clip_length, v2_total_frames)
         
-        # Positive sample: pair with video 2 clip at same split position
-        if v1_pos < len(v2_split_indices):
-            v2_split_idx = v2_split_indices[v1_pos]
-            v2_clip, v2_features_clip = get_clip_ending_at(v2_split_idx, v2_frames, v2_features, clip_length, v2_total_frames)
-            if v2_clip is not None:
-                v1_clips.append(v1_clip)
-                v1_clip_features.append(v1_features_clip)
-                v2_clips.append(v2_clip)
-                v2_clip_features.append(v2_features_clip)
-                sample_labels.append(1.0)
-                sample_indices.append((v1_split_idx, v2_split_idx))
+        if v1_clip is not None and v2_clip is not None:
+            v1_clips.append(v1_clip)
+            v1_clip_features.append(v1_features_clip)
+            v2_clips.append(v2_clip)
+            v2_clip_features.append(v2_features_clip)
+            sample_labels.append(1.0)
+            sample_indices.append((v1_split_idx, v2_split_idx))
         
-        # Negative samples: pair with random video 2 clips
+        # Negative samples for split points
         neg_count = 0
         attempts = 0
         max_attempts = 50
         while neg_count < max_negatives_per_split and attempts < max_attempts:
             v2_idx = random.randint(0, v2_total_frames - 1)
-            if v2_idx in v2_split_positions and v2_split_positions[v2_idx] == v1_pos:
+            if v2_idx in v2_split_indices and v2_split_indices.index(v2_idx) == pos:
                 attempts += 1
                 continue
-            
-            v2_clip, v2_features_clip = get_clip_ending_at(v2_idx, v2_frames, v2_features, clip_length, v2_total_frames)
-            if v2_clip is not None:
+            v2_clip_neg, v2_features_clip_neg = get_clip_ending_at(v2_idx, v2_frames, v2_features, clip_length, v2_total_frames)
+            if v2_clip_neg is not None:
                 v1_clips.append(v1_clip)
                 v1_clip_features.append(v1_features_clip)
-                v2_clips.append(v2_clip)
-                v2_clip_features.append(v2_features_clip)
+                v2_clips.append(v2_clip_neg)
+                v2_clip_features.append(v2_features_clip_neg)
                 sample_labels.append(0.0)
                 sample_indices.append((v1_split_idx, v2_idx))
                 neg_count += 1
             attempts += 1
+    
+    # Generate augmented samples for segments between splits, biased towards split points
+    num_segments = len(v1_split_indices) - 1
+    for seg in range(num_segments):
+        v1_start = v1_split_indices[seg]
+        v1_end = v1_split_indices[seg + 1]
+        v2_start = v2_split_indices[seg]
+        v2_end = v2_split_indices[seg + 1]
+        
+        v1_seg_length = v1_end - v1_start
+        v2_seg_length = v2_end - v2_start
+        
+        # Select frames where full clips can be contained within the segment
+        possible_idx1 = list(range(v1_start + clip_length - 1, v1_end + 1))
+        if len(possible_idx1) == 0:
+            continue
+        
+        # Generate relative positions with beta distribution (biased towards 0 and 1)
+        num_samples = min(num_augmented_per_segment, len(possible_idx1))
+        relative_positions = np.random.beta(0.5, 0.5, num_samples)
+        
+        # Map to frame indices
+        min_idx = possible_idx1[0]
+        max_idx = possible_idx1[-1]
+        selected_idx1 = [int(min_idx + p * (max_idx - min_idx)) for p in relative_positions]
+        selected_idx1 = [min(max(idx, min_idx), max_idx) for idx in selected_idx1]
+        
+        for idx1 in selected_idx1:
+            # Compute relative position in video 1 segment
+            p = (idx1 - v1_start) / v1_seg_length
+            # Map to corresponding frame in video 2 segment
+            idx2_float = v2_start + p * v2_seg_length
+            idx2 = int(round(idx2_float))
+            if idx2 < v2_start or idx2 > v2_end or idx2 - clip_length + 1 < v2_start:
+                continue
+            
+            v1_clip, v1_features_clip = get_clip_ending_at(idx1, v1_frames, v1_features, clip_length, v1_total_frames)
+            v2_clip, v2_features_clip = get_clip_ending_at(idx2, v2_frames, v2_features, clip_length, v2_total_frames)
+            if v1_clip is not None and v2_clip is not None:
+                v1_clips.append(v1_clip)
+                v1_clip_features.append(v1_features_clip)
+                v2_clips.append(v2_clip)
+                v2_clip_features.append(v2_features_clip)
+                sample_labels.append(1.0)
+                sample_indices.append((idx1, idx2))
+                
+                # Generate negative samples for augmented positive sample
+                neg_count = 0
+                attempts = 0
+                while neg_count < max_negatives_per_split and attempts < max_attempts:
+                    random_idx2 = random.randint(0, v2_total_frames - 1)
+                    if abs(random_idx2 - idx2) < clip_length:
+                        attempts += 1
+                        continue
+                    v2_clip_neg, v2_features_clip_neg = get_clip_ending_at(random_idx2, v2_frames, v2_features, clip_length, v2_total_frames)
+                    if v2_clip_neg is not None:
+                        v1_clips.append(v1_clip)
+                        v1_clip_features.append(v1_features_clip)
+                        v2_clips.append(v2_clip_neg)
+                        v2_clip_features.append(v2_features_clip_neg)
+                        sample_labels.append(0.0)
+                        sample_indices.append((idx1, random_idx2))
+                        neg_count += 1
+                    attempts += 1
     
     return (np.array(v1_clips), np.array(v1_clip_features), np.array(v2_clips), 
             np.array(v2_clip_features), np.array(sample_labels), np.array(sample_indices))
@@ -143,6 +200,7 @@ def main():
     parser.add_argument("--output_file", type=str, default="clip_training_data.npz", help="Output file for training data")
     parser.add_argument("--clip_length", type=int, default=125, help="Number of frames per clip")
     parser.add_argument("--max_negatives_per_split", type=int, default=10, help="Max negative samples per split point")
+    parser.add_argument("--num_augmented_per_segment", type=int, default=5, help="Number of augmented samples per segment")
     args = parser.parse_args()
     
     # Load data from both videos
@@ -155,7 +213,9 @@ def main():
     print("Generating training samples...")
     v1_clips, v1_clip_features, v2_clips, v2_clip_features, sample_labels, sample_indices = generate_training_samples(
         v1_frames, v1_features, v1_labels, v1_indices, v2_frames, v2_features, v2_labels, v2_indices,
-        clip_length=args.clip_length, max_negatives_per_split=args.max_negatives_per_split
+        clip_length=args.clip_length, 
+        max_negatives_per_split=args.max_negatives_per_split,
+        num_augmented_per_segment=args.num_augmented_per_segment
     )
     
     if v1_clips is None:

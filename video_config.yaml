@@ -1,0 +1,21 @@
+videos:
+  - riderId: "amaury_pierron"
+    trackId: "loudenvielle_2025"
+    url: "https://www.youtube.com/watch?v=jUfJyZFpAoY&t=63s&ab_channel=GoProBike"
+    splits:
+      - "00:01:15"
+      - "00:39:19"
+      - "01:35:08"
+      - "02:36:04"
+      - "02:58:24"
+      - "03:17:00"
+  - riderId: "vali_holl"
+    trackId: "loudenvielle_2025"
+    url: "https://youtu.be/AClbgHAvAZ4?si=jNAzrUfA6t9s9nY7"
+    splits:
+      - "00:01:15"
+      - "00:43:21"
+      - "01:46:01"
+      - "02:56:20"
+      - "03:24:00"
+      - "03:45:07"
