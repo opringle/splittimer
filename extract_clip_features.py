@@ -35,8 +35,8 @@ def extract_features(frames, model, device, batch_size=32):
     return all_features
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract ResNet50 features for video clips and save them in the same directory.")
-    parser.add_argument("clips_dir", type=str, help="Path to directory containing processed clips (*_x.npy files)")
+    parser = argparse.ArgumentParser(description="Extract ResNet50 features for video clips in a nested directory structure.")
+    parser.add_argument("clips_dir", type=str, help="Base directory containing processed clips (processed_clips/<trackId>/<riderId>/*_x.npy)")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for feature extraction")
     args = parser.parse_args()
 
@@ -47,14 +47,14 @@ def main():
     model = model.to(device)
     print(f"Using device: {device}")
 
-    # Get list of clip files
+    # Get list of clip files recursively
     clips_dir = Path(args.clips_dir)
-    clip_files = sorted(clips_dir.glob("*_x.npy"))
+    clip_files = sorted(clips_dir.rglob("*_x.npy"))  # Recursively find all *_x.npy files
     if not clip_files:
-        print(f"Error: No clip files (*_x.npy) found in {args.clips_dir}")
+        print(f"Error: No clip files (*_x.npy) found in {args.clips_dir} or its subdirectories")
         return
 
-    print(f"Found {len(clip_files)} clip files in {args.clips_dir}")
+    print(f"Found {len(clip_files)} clip files in {args.clips_dir} and subdirectories")
 
     # Process each clip file with a single progress bar
     for clip_file in tqdm(clip_files, desc="Processing clips"):
@@ -67,8 +67,11 @@ def main():
             print(f"Warning: No features extracted for {clip_file}, skipping.")
             continue
         
-        # Save features to the same directory
-        feature_path = clip_file.with_name(clip_file.stem + '_resnet50.npy')
+        # Save features to the same directory with updated naming
+        # Expected clip_file name: <startFrame>_to_<endFrame>_x.npy
+        base_name = clip_file.stem  # e.g., "000000_to_000124_x"
+        feature_name = base_name.replace('_x', '_resnet50')  # e.g., "000000_to_000124_resnet50"
+        feature_path = clip_file.with_name(f"{feature_name}.npy")
         np.save(feature_path, features)
         print(f"Saved features to {feature_path} with shape {features.shape}")
 
