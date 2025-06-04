@@ -20,9 +20,11 @@ def download_youtube_video(url, output_path):
                 print(f"Video file already exists at {video_path}, skipping download.")
                 return video_path, processed_title
             
+            # Updated options for maximum quality
             ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': video_path,
+                'format': 'bestvideo+bestaudio/best',  # Select highest quality video and audio
+                'merge_output_format': 'mp4',          # Merge into MP4 for compatibility
+                'outtmpl': video_path,                 # Output file path
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -30,7 +32,7 @@ def download_youtube_video(url, output_path):
     except Exception as e:
         print(f"Error downloading video or retrieving metadata: {e}")
         return None, None
-
+    
 def preprocess_frame(frame, preprocess):
     """Preprocess a single video frame."""
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -107,17 +109,26 @@ def process_and_save_clips(video_path, output_dir, preprocess, clip_duration_sec
     
     cap.release()
 
+def timecode_to_frames(timecode, fps):
+    """Convert a timecode in HH:MM:SS:FF format to a frame index based on fps."""
+    parts = timecode.split(':')
+    if len(parts) != 3:
+        raise ValueError(f"Timecode must be in MM:SS:FF format but got '{timecode}'")
+    MM, SS, FF = map(int, parts)
+    total_frames = (MM * 60 + SS) * int(fps) + FF
+    return total_frames
+
 def main():
     parser = argparse.ArgumentParser(description="Download and preprocess YouTube video for deep learning models.")
     parser.add_argument("url", type=str, help="YouTube video URL")
     parser.add_argument("--resolution", type=int, nargs=2, default=[224,224], help="Resolution for preprocessing, width and height")
     parser.add_argument("--output_dir", type=str, default="processed_clips", help="Output directory for processed clips")
-    parser.add_argument("--split-times", type=float, nargs='*', default=[], help="Timestamps (in seconds) to mark as split points (labeled 1.0)")
+    parser.add_argument("--split-times", type=str, nargs='*', default=[], help="Timestamps in MM:SS:FF format to mark as split points (labeled 1.0)")
     parser.add_argument("--keep-video", action="store_true", help="Keep the downloaded video file after processing")
     args = parser.parse_args()
     
     print(f"Using resolution: {args.resolution[0]}x{args.resolution[1]}")
-    print(f"Split timestamps: {args.split_times} seconds")
+    print(f"Split timestamps: {args.split_times}")
     print(f"Keep video file: {args.keep_video}")
     
     resize_size = tuple(args.resolution)
@@ -144,7 +155,11 @@ def main():
         assert video_fps == 25.0, f"Video fps {video_fps} is not 25.0, cannot process."
         cap.release()
         
-        split_indices = [int(timestamp * video_fps) for timestamp in args.split_times]
+        try:
+            split_indices = [timecode_to_frames(tc, video_fps) for tc in args.split_times]
+        except ValueError as e:
+            print(f"Error in split_times: {e}")
+            return
         
         full_output_dir = os.path.join(args.output_dir, title)
         print(f"Saving clips and labels to {full_output_dir}")

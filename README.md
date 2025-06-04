@@ -1,7 +1,7 @@
 
 ## Notes
 
-- [x] download youtube videos and create X,Y pairs containing preprocessed frames and labelled splits
+- [x] download youtube videos and create X,Y pairs containing preprocessed clips and labelled splits
 - [x] compute resnet50 features for all clips and store on disk
 - [x] try simply finding the frame with the highest cosine similarity - doesn't work well
 - [ ] intelligently generate training data from splits https://grok.com/share/bGVnYWN5_b89bd234-5e76-4ca3-9ef3-3dd2c1054768 
@@ -32,14 +32,14 @@ brew install ffmpeg
 
 ## Preprocess GoPro runs
 
-Download 2 youtube videos of Loudenvielle DH runs (vali holl & amaury pierron) and preprocess them into 5s clips for ML
+Download 2 youtube videos of Loudenvielle DH runs (vali holl & amaury pierron) and preprocess them into 5s clips for ML.
 
 ```bash
-python youtube_preprocess.py https://www.youtube.com/watch?v=jUfJyZFpAoY&t=63s&ab_channel=GoProBike --split-times 39.0 --keep-video
+python youtube_preprocess.py https://www.youtube.com/watch?v=jUfJyZFpAoY&t=63s&ab_channel=GoProBike --split-times 00:01:15 00:39:19 01:35:08 02:36:04 02:58:24 03:17:07 --keep-video
 ```
 
 ```bash
-python youtube_preprocess.py https://www.youtube.com/watch?v=AClbgHAvAZ4&ab_channel=GoProBike --split-times 43.0 --keep-video
+python youtube_preprocess.py https://youtu.be/AClbgHAvAZ4?si=jNAzrUfA6t9s9nY7 --split-times 00:01:15 00:43:21 01:46:01 02:56:20 03:24:00 03:45:07 --keep-video
 ```
 
 Project each clip to vector representation (using pretrained image model) and save them to disk
