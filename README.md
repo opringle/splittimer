@@ -1,3 +1,6 @@
+## TODO
+
+- shuffle samples into batches instead of making them continous
 
 ## Prerequisites
 

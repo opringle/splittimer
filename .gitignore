@@ -4,3 +4,5 @@ training_data/
 .DS_Store
 training_data_inspection/
 *.npy
+runs/
+checkpoints

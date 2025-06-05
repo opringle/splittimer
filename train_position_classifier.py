@@ -10,6 +10,8 @@ import logging
 from tqdm import tqdm
 from pathlib import Path
 import random
+from torch.utils.tensorboard import SummaryWriter
+from datetime import datetime
 
 class NPZDataset(Dataset):
     def __init__(self, file_list):
@@ -101,15 +103,16 @@ def count_parameters(model):
 def main():
     parser = argparse.ArgumentParser(description="Train a position classifier on preprocessed video clip data.")
     parser.add_argument('data_dir', type=str, help='Directory containing .npz files with preprocessed data')
-    parser.add_argument('--num_epochs', type=int, default=100, help='Number of training epochs')
-    parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate for optimizer')
+    parser.add_argument('--num_epochs', type=int, default=1500, help='Number of training epochs')
+    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate for optimizer')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='Ratio of data for validation')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
     parser.add_argument('--eval_interval', type=int, default=10, help='Evaluate the model on the validation set every N epochs')
+    parser.add_argument('--checkpoint_interval', type=int, default=10, help='Save model checkpoint every N epochs')
     parser.add_argument('--bidirectional', action='store_true', help='Use bidirectional LSTM')
-    parser.add_argument('--compress_sizes', type=str, default='32', help='Comma-separated list of sizes for compression layers, e.g., "1024,512"')
-    parser.add_argument('--post_lstm_sizes', type=str, default='', help='Comma-separated list of sizes for post-LSTM layers, e.g., "256,128"')
-    parser.add_argument('--hidden_size', type=int, default=32, help='Hidden size of LSTM')
+    parser.add_argument('--compress_sizes', type=str, default='1024,512', help='Comma-separated list of sizes for compression layers, e.g., "1024,512"')
+    parser.add_argument('--post_lstm_sizes', type=str, default='256,128', help='Comma-separated list of sizes for post-LSTM layers, e.g., "256,128"')
+    parser.add_argument('--hidden_size', type=int, default=256, help='Hidden size of LSTM')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -117,6 +120,17 @@ def main():
     # Parse compress_sizes and post_lstm_sizes
     compress_sizes = [int(x) for x in args.compress_sizes.split(',')] if args.compress_sizes else []
     post_lstm_sizes = [int(x) for x in args.post_lstm_sizes.split(',')] if args.post_lstm_sizes else []
+
+    # Set up TensorBoard
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_dir = f'runs/experiment_{timestamp}'
+    writer = SummaryWriter(log_dir)
+    logging.info(f'TensorBoard logs will be saved in {log_dir}. Run `tensorboard --logdir=runs` to view.')
+
+    # Set up checkpoint directory
+    checkpoint_dir = Path('checkpoints')
+    checkpoint_dir.mkdir(exist_ok=True)
+    logging.info(f'Checkpoints will be saved in {checkpoint_dir}')
 
     data_dir = Path(args.data_dir)
     all_files = list(data_dir.glob('*.npz'))
@@ -161,6 +175,7 @@ def main():
             total_samples += labels.size(0)
         train_loss = total_loss / total_samples
         logging.info(f'Epoch {epoch+1}, Train Loss: {train_loss:.4f}')
+        writer.add_scalar('Loss/train', train_loss, epoch)
 
         if (epoch + 1) % args.eval_interval == 0 or epoch == args.num_epochs - 1:
             model.eval()
@@ -180,12 +195,39 @@ def main():
                     preds = torch.sigmoid(outputs).squeeze() > 0.5
                     all_preds.extend(preds.cpu().numpy())
                     all_labels.extend(labels.cpu().numpy())
+            
+            
             val_loss = val_loss / total_samples
-            report = classification_report(all_labels, all_preds, target_names=['Class 0', 'Class 1'], zero_division=0)
-            logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
-            logging.info(f'Classification Report:\n{report}')
+            
+            # Compute classification report string and dictionary
+            report_str = classification_report(all_labels, all_preds, target_names=['Class 0', 'Class 1'], zero_division=0)
+            report_dict = classification_report(all_labels, all_preds, target_names=['Class 0', 'Class 1'], zero_division=0, output_dict=True)
 
-        # torch.save(model.state_dict(), f'model_epoch_{epoch+1}.pth')
+            # Log to console
+            logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
+            logging.info(f'Classification Report:\n{report_str}')
+
+            # Log to TensorBoard
+            writer.add_scalar('Loss/val', val_loss, epoch)
+            writer.add_scalar('Accuracy/val', report_dict['accuracy'], epoch)
+            for class_name in ['Class 0', 'Class 1']:
+                writer.add_scalar(f'Precision/val/{class_name}', report_dict[class_name]['precision'], epoch)
+                writer.add_scalar(f'Recall/val/{class_name}', report_dict[class_name]['recall'], epoch)
+                writer.add_scalar(f'F1-score/val/{class_name}', report_dict[class_name]['f1-score'], epoch)
+            writer.add_scalar('Macro Avg/Precision/val', report_dict['macro avg']['precision'], epoch)
+            writer.add_scalar('Macro Avg/Recall/val', report_dict['macro avg']['recall'], epoch)
+            writer.add_scalar('Macro Avg/F1-score/val', report_dict['macro avg']['f1-score'], epoch)
+            writer.add_scalar('Weighted Avg/Precision/val', report_dict['weighted avg']['precision'], epoch)
+            writer.add_scalar('Weighted Avg/Recall/val', report_dict['weighted avg']['recall'], epoch)
+            writer.add_scalar('Weighted Avg/F1-score/val', report_dict['weighted avg']['f1-score'], epoch)        
+
+        # Save checkpoint
+        if (epoch + 1) % args.checkpoint_interval == 0 or epoch == args.num_epochs - 1:
+            checkpoint_path = checkpoint_dir / f'checkpoint_epoch_{epoch+1}.pth'
+            torch.save(model.state_dict(), checkpoint_path)
+            logging.info(f'Saved checkpoint at epoch {epoch+1} to {checkpoint_path}')
+
+    writer.close()
 
 if __name__ == "__main__":
     main()
