@@ -41,13 +41,13 @@ python youtube_download.py --config video_config.yaml
 Generate generalized training data for identifying splits
 
 ```bash
-python generate_training_samples.py processed_clips --log-level DEBUG
+python generate_training_samples.py --config video_config.yaml --max_negatives_per_positive 10 --num_augmented_positives_per_segment 50 --log-level DEBUG
 ```
 
 Inspect the training data
 
 ```bash
-python inspect_training_data.py training_data/training_metadata_loudenvielle_2025_amaury_pierron_vali_holl.npz --num_positive 5 --num_negative 5
+python inspect_training_data.py training_data/training_metadata.csv --num_samples_per_class 3
 ```
 
 Preprocess videos into training samples and save to disk

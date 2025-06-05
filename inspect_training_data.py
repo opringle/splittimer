@@ -1,88 +1,81 @@
-import numpy as np
+import pandas as pd
+import cv2
 import matplotlib.pyplot as plt
 import argparse
-import os
-import random
+from pathlib import Path
 
-def denormalize(frame, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+def get_frame(video_path, frame_idx):
     """
-    Denormalize a frame for visualization.
-    
-    Args:
-        frame (np.ndarray): Normalized frame of shape (C, H, W).
-        mean (list): Mean values used for normalization.
-        std (list): Std dev values used for normalization.
-    
-    Returns:
-        np.ndarray: Denormalized frame of shape (H, W, C) in [0,1].
+    Extract a specific frame from the video file.
     """
-    frame = frame.copy()
-    for c in range(3):
-        frame[c] = frame[c] * std[c] + mean[c]
-    frame = np.clip(frame, 0, 1)
-    frame = np.transpose(frame, (1, 2, 0))
-    return frame
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video {video_path}")
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    ret, frame = cap.read()
+    cap.release()
+    if ret:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return frame_rgb
+    else:
+        raise ValueError(f"Cannot read frame {frame_idx} from {video_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize training data samples by showing final frames side by side.")
-    parser.add_argument("npz_file", type=str, help="Path to the .npz file containing training data (e.g., training_data/clip_training_data.npz)")
-    parser.add_argument("--num_positive", type=int, default=5, help="Number of positive samples to view")
-    parser.add_argument("--num_negative", type=int, default=5, help="Number of negative samples to view")
-    parser.add_argument("--save_dir", type=str, help="Directory to save the figures (optional)")
+    parser = argparse.ArgumentParser(description="Inspect training data by displaying random positive and negative samples.")
+    parser.add_argument("csv_path", type=str, help="Path to the training data CSV")
+    parser.add_argument("--num_samples_per_class", type=int, default=3, help="Number of positive and negative samples to display")
     args = parser.parse_args()
-    
-    # Load the .npz file
-    print(f"Loading data from {args.npz_file}")
-    data = np.load(args.npz_file)
-    video1_clips = data['video1_clips']
-    video2_clips = data['video2_clips']
-    labels = data['labels']
-    sample_indices = data['indices']
-    
-    # Find positive and negative sample indices
-    positive_indices = np.where(labels == 1.0)[0]
-    negative_indices = np.where(labels == 0.0)[0]
-    
-    # Select random samples
-    num_positive = min(args.num_positive, len(positive_indices))
-    num_negative = min(args.num_negative, len(negative_indices))
-    selected_positive = random.sample(list(positive_indices), num_positive) if num_positive > 0 else []
-    selected_negative = random.sample(list(negative_indices), num_negative) if num_negative > 0 else []
-    
-    # Function to plot samples
-    def plot_samples(selected_indices, title_prefix):
-        if not selected_indices:
-            print(f"No {title_prefix.lower()} samples to display.")
-            return
-        for idx in selected_indices:
-            v1_frame = denormalize(video1_clips[idx, -1])
-            v2_frame = denormalize(video2_clips[idx, -1])
-            v1_idx, v2_idx = sample_indices[idx]
-            label = labels[idx]
-            
-            fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-            axes[0].imshow(v1_frame)
-            axes[0].set_title(f"Video 1, Frame: {v1_idx}")
-            axes[0].axis('off')
-            axes[1].imshow(v2_frame)
-            axes[1].set_title(f"Video 2, Frame: {v2_idx}")
-            axes[1].axis('off')
-            
-            fig.suptitle(f"{title_prefix} Sample - Label: {int(label)} (Frame {v1_idx} vs {v2_idx})")
-            fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-            
-            if args.save_dir:
-                os.makedirs(args.save_dir, exist_ok=True)
-                save_path = os.path.join(args.save_dir, f"{title_prefix.lower().replace(' ', '_')}_{v1_idx}_{v2_idx}.png")
-                fig.savefig(save_path)
-                print(f"Saved {title_prefix} figure to {save_path}")
-                plt.close(fig)
-            else:
-                plt.show()
-    
-    # Plot positive and negative samples
-    plot_samples(selected_positive, "Positive")
-    plot_samples(selected_negative, "Negative")
+
+    # Load the CSV file
+    df = pd.read_csv(args.csv_path)
+
+    # Filter positive and negative samples
+    df_pos = df[df['label'] == 1.0]
+    df_neg = df[df['label'] == 0.0]
+
+    # Determine the number of samples to display (handle cases where there are fewer samples than requested)
+    num_pos = min(args.num_samples_per_class, len(df_pos))
+    num_neg = min(args.num_samples_per_class, len(df_neg))
+
+    # Sample random positive and negative samples
+    pos_samples = df_pos.sample(n=num_pos)
+    neg_samples = df_neg.sample(n=num_neg)
+
+    # Total number of rows for the plot
+    total_rows = num_pos + num_neg
+
+    # Create a figure with subplots: each row has two images (one for each frame in the pair)
+    _, axs = plt.subplots(nrows=total_rows, ncols=2, figsize=(10, 5 * total_rows))
+
+    # Combine positive and negative samples
+    samples = list(pos_samples.itertuples()) + list(neg_samples.itertuples())
+    labels = ['Positive'] * num_pos + ['Negative'] * num_neg
+
+    for i, (row, label_type) in enumerate(zip(samples, labels)):
+        track_id = row.track_id
+        v1_rider_id = row.v1_rider_id
+        v2_rider_id = row.v2_rider_id
+        v1_frame_idx = row.v1_frame_idx
+        v2_frame_idx = row.v2_frame_idx
+
+        # Construct video paths
+        v1_path = Path("downloaded_videos") / track_id / v1_rider_id / f"{track_id}_{v1_rider_id}.mp4"
+        v2_path = Path("downloaded_videos") / track_id / v2_rider_id / f"{track_id}_{v2_rider_id}.mp4"
+
+        # Extract frames
+        frame1 = get_frame(v1_path, v1_frame_idx)
+        frame2 = get_frame(v2_path, v2_frame_idx)
+
+        # Plot the frames
+        axs[i, 0].imshow(frame1)
+        axs[i, 0].set_title(f"{label_type} sample: {v1_rider_id} frame {v1_frame_idx}")
+        axs[i, 0].axis('off')
+        axs[i, 1].imshow(frame2)
+        axs[i, 1].set_title(f"{v2_rider_id} frame {v2_frame_idx}")
+        axs[i, 1].axis('off')
+
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
     main()
