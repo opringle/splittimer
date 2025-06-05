@@ -53,11 +53,11 @@ python inspect_training_data.py training_data/training_metadata.csv --num_sample
 Preprocess videos into training samples and save to disk
 
 ```bash
-python preprocess_videos_into_samples.py
+python preprocess_videos_into_samples.py training_data/training_metadata.csv preprocessed_training_data --F=50
 ```
 
 Train and evaluate a model on the data
 
 ```bash
-python ____.py
+python train_position_classifier.py
 ```

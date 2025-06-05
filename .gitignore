@@ -3,3 +3,4 @@ downloaded_videos/
 training_data/
 .DS_Store
 training_data_inspection/
+preprocessed_training_data/
