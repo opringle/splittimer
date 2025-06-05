@@ -32,32 +32,32 @@ brew install ffmpeg
 
 ## Preprocess GoPro runs
 
-Download 2 youtube videos of Loudenvielle DH runs (vali holl & amaury pierron) and preprocess them into 5s clips for ML.
+Download youtube videos based on config file
 
 ```bash
-python youtube_preprocess.py --config video_config.yaml --keep-video
+python youtube_download.py --config video_config.yaml
 ```
 
-Compute vector representations of each clip (using pretrained resnet 50 model) and save to disk
-
-```bash
-python extract_clip_features.py processed_clips --batch-size 32
-```
-
-Generate training data for dedicated model
+Generate generalized training data for identifying splits
 
 ```bash
 python generate_training_samples.py processed_clips --log-level DEBUG
 ```
 
-Inspect the training samples
+Inspect the training data
 
 ```bash
 python inspect_training_data.py training_data/training_metadata_loudenvielle_2025_amaury_pierron_vali_holl.npz --num_positive 5 --num_negative 5
 ```
 
-Use cosine similarity to predict the split frame in the target video (Vali's run). Compute eval metrics and display predictions.
+Preprocess videos into training samples and save to disk
 
 ```bash
-python find_splits.py processed_clips/gopro_amaury_pierron_takes_2nd_and_overall_points_lead__loudenvielle__25_uci_dh_mtb_world_cup processed_clips/gopro_vali_holl_takes_2nd_place__loudenvielle__25_uci_dh_mtb_world_cup
+python preprocess_videos_into_samples.py
+```
+
+Train and evaluate a model on the data
+
+```bash
+python ____.py
 ```
