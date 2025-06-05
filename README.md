@@ -44,12 +44,10 @@ Compute vector representations of each clip (using pretrained resnet 50 model) a
 python extract_clip_features.py processed_clips --batch-size 32
 ```
 
-TODO:::: rethink how to do t
-
 Generate training data for dedicated model
 
 ```bash
-python generate_training_samples.py processed_clips
+python generate_training_samples.py processed_clips --log-level DEBUG
 ```
 
 Inspect the training samples
