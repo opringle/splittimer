@@ -5,6 +5,7 @@ from pathlib import Path
 import random
 import itertools
 import logging
+import pandas as pd
 
 def get_clip_metadata(video_dir):
     """
@@ -176,8 +177,6 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
     return np.array(sample_labels), np.array(sample_indices), sample_metadata
 
 def main():
-    # num positives = num splits + positives_per_segment * (num_splits -1)
-    # = 6 + 5 * 5 = 31 per rider combination on a given track
     parser = argparse.ArgumentParser(description="Generate training metadata for all rider combinations on each track.")
     parser.add_argument("clips_dir", type=str, help="Base directory containing processed clips (processed_clips/<trackId>/<riderId>)")
     parser.add_argument("--clip_length", type=int, default=125, help="Number of frames per clip")
@@ -205,6 +204,7 @@ def main():
         return
     
     # Process each track
+    dfs = []
     for track_dir in track_dirs:
         track_id = track_dir.name
         logging.info(f"Processing track: {track_id}")
@@ -221,47 +221,48 @@ def main():
         
         # Process each rider pair
         for rider_dir1, rider_dir2 in rider_pairs:
-            try:
-                # Extract metadata for both riders
-                logging.info(f"Extracting metadata for rider pair: {rider_dir1.name} and {rider_dir2.name}")
-                v1_indices, v1_labels, v1_rider_id, v1_track_id, v1_clip_ranges = get_clip_metadata(rider_dir1)
-                v2_indices, v2_labels, v2_rider_id, v2_track_id, v2_clip_ranges = get_clip_metadata(rider_dir2)
-                
-                # Generate training samples
-                logging.info(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
-                sample_labels, sample_indices, sample_metadata = generate_training_samples(
-                    v1_indices, v1_labels, v1_rider_id, v1_track_id,
-                    v2_indices, v2_labels, v2_rider_id, v2_track_id,
-                    max_negatives_per_positive=args.max_negatives_per_positive,
-                    num_augmented_positives_per_segment=args.num_augmented_positives_per_segment
-                )
-                
-                # Check if sample generation failed
-                if sample_labels is None:
-                    logging.warning(f"Failed to generate samples for pair {v1_rider_id} and {v2_rider_id}, skipping.")
-                    continue
-                
-                # Save training metadata
-                training_data_output_path = "training_data"
-                os.makedirs(training_data_output_path, exist_ok=True)
-                output_filename = f"training_metadata_{track_id}_{v1_rider_id}_{v2_rider_id}.npz"
-                training_data_file_path = os.path.join(training_data_output_path, output_filename)
-                logging.info(f"Saving training metadata to {training_data_file_path}")
-                np.savez(
-                    training_data_file_path,
-                    labels=sample_labels,
-                    indices=sample_indices,
-                    metadata=np.array(sample_metadata, dtype=object)
-                )
-                
-                logging.info(f"Generated {len(sample_labels)} samples for pair {v1_rider_id} and {v2_rider_id}: "
-                             f"{np.sum(sample_labels == 1.0)} positive, {np.sum(sample_labels == 0.0)} negative")
+            # Extract metadata for both riders
+            logging.info(f"Extracting metadata for rider pair: {rider_dir1.name} and {rider_dir2.name}")
+            v1_indices, v1_labels, v1_rider_id, v1_track_id, v1_clip_ranges = get_clip_metadata(rider_dir1)
+            v2_indices, v2_labels, v2_rider_id, v2_track_id, v2_clip_ranges = get_clip_metadata(rider_dir2)
             
-            except Exception as e:
-                logging.error(f"Error processing rider pair {rider_dir1.name} and {rider_dir2.name}: {e}")
+            # Generate training samples
+            logging.info(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
+            sample_labels, sample_indices, sample_metadata = generate_training_samples(
+                v1_indices, v1_labels, v1_rider_id, v1_track_id,
+                v2_indices, v2_labels, v2_rider_id, v2_track_id,
+                max_negatives_per_positive=args.max_negatives_per_positive,
+                num_augmented_positives_per_segment=args.num_augmented_positives_per_segment
+            )
+            
+            # Check if sample generation failed
+            if sample_labels is None:
+                logging.warning(f"Failed to generate samples for pair {v1_rider_id} and {v2_rider_id}, skipping.")
                 continue
+            
+            # Create DataFrame from sample data
+            data = {
+                'track_id': [meta['v1_track_id'] for meta in sample_metadata],
+                'v1_rider_id': [meta['v1_rider_id'] for meta in sample_metadata],
+                'v2_rider_id': [meta['v2_rider_id'] for meta in sample_metadata],
+                'v1_frame_idx': [idx[0] for idx in sample_indices],
+                'v2_frame_idx': [idx[1] for idx in sample_indices],
+                'label': sample_labels,
+            }
+            df = pd.DataFrame(data)
+            dfs.append(df)
+            
+            logging.info(f"Generated {len(sample_labels)} samples for pair {v1_rider_id} and {v2_rider_id}: "
+                            f"{np.sum(sample_labels == 1.0)} positive, {np.sum(sample_labels == 0.0)} negative")
+
+    df = pd.concat(dfs, axis=0)
+    training_data_output_path = "training_data"
+    os.makedirs(training_data_output_path, exist_ok=True)
+    output_filename = f"training_metadata.csv"
+    training_data_file_path = os.path.join(training_data_output_path, output_filename)
+    df.to_csv(training_data_file_path, index=False)
+    logging.info(f"Saved training metadata to {training_data_file_path}")
     
-    logging.info("Processing complete for all tracks and rider pairs!")
 
 if __name__ == "__main__":
     main()
