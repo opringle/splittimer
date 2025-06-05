@@ -50,10 +50,16 @@ Inspect the training data
 python inspect_training_data.py training_data/training_metadata.csv --num_samples 10 && open ./training_data_inspection/index.html
 ```
 
+Extract image features from frames and save to disk
+
+```bash
+python extract_clip_features.py downloaded_videos video_features --feature-extraction-batch-size=50 --clip-length=50 --log-level DEBUG
+```
+
 Preprocess videos into training samples and save to disk
 
 ```bash
-python preprocess_videos_into_samples.py training_data/training_metadata.csv training_data --F=50 --batch_size=32
+python preprocess_videos_into_samples.py training_data/training_metadata.csv training_data --F=50 --batch_size=32 --feature_batch_size=50 --log-level DEBUG
 ```
 
 Train and evaluate a model on the data

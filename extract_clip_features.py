@@ -2,80 +2,159 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.models as models
+import torchvision.transforms as transforms
 import argparse
 from pathlib import Path
+import logging
 from tqdm import tqdm
+import cv2
+import math
 
 def extract_features(frames, model, device, batch_size=32):
-    """Extract ResNet50 features for a batch of frames with batch processing."""
+    """Extract ResNet50 features for a batch of frames."""
     model.eval()
+    preprocess = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
     all_features = []
-    
-    num_frames = len(frames)
-    if num_frames == 0:
-        print("Error: No frames provided for feature extraction.")
+
+    if len(frames) == 0:
+        logging.error("No frames provided for feature extraction")
         return np.array([])
-    
+
     with torch.no_grad():
-        for start_idx in range(0, num_frames, batch_size):
-            end_idx = min(start_idx + batch_size, num_frames)
+        for start_idx in range(0, len(frames), batch_size):
+            end_idx = min(start_idx + batch_size, len(frames))
             batch_frames = frames[start_idx:end_idx]
-            
-            frames_tensor = torch.tensor(batch_frames, dtype=torch.float32, pin_memory=(device.type == "cuda"))
-            frames_tensor = frames_tensor.to(device, non_blocking=True)
-            
-            features = model(frames_tensor)
-            features = features.view(features.size(0), -1)
-            features = nn.functional.normalize(features, p=2, dim=1)
-            
+
+            # Preprocess frames
+            batch_tensors = [preprocess(frame) for frame in batch_frames]
+            batch_tensors = torch.stack(batch_tensors).to(device)
+
+            # Extract features
+            features = model(batch_tensors).squeeze(-1).squeeze(-1)  # Shape: (batch_size, 2048)
             all_features.append(features.cpu().numpy())
-    
+
     all_features = np.concatenate(all_features, axis=0)
-    print(f"Extracted features with shape {all_features.shape} (N, feature_dim)")
+    logging.debug(f"Extracted features with shape {all_features.shape}")
     return all_features
 
 def main():
     parser = argparse.ArgumentParser(description="Extract ResNet50 features for video clips in a nested directory structure.")
-    parser.add_argument("clips_dir", type=str, help="Base directory containing processed clips (processed_clips/<trackId>/<riderId>/*_x.npy)")
-    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for feature extraction")
+    parser.add_argument("videos_dir", type=str, help="Base directory containing videos (videos_dir/<trackId>/<riderId>/*.mp4)")
+    parser.add_argument("output_dir", type=str, help="Base directory to save feature .npy files (output_dir/<trackId>/<riderId>/*.npy)")
+    parser.add_argument("--feature-extraction-batch-size", type=int, default=16, help="Batch size for feature extraction")
+    parser.add_argument("--clip-length", type=int, default=50, help="Length of each clip")
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set the logging level (default: INFO)"
+    )
     args = parser.parse_args()
 
-    # Initialize ResNet50 model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.resnet50(pretrained=True)
-    model = nn.Sequential(*list(model.children())[:-1])  # Remove final classification layer
-    model = model.to(device)
-    print(f"Using device: {device}")
+    log_level = getattr(logging, args.log_level.upper())
+    logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
-    # Get list of clip files recursively
-    clips_dir = Path(args.clips_dir)
-    clip_files = sorted(clips_dir.rglob("*_x.npy"))  # Recursively find all *_x.npy files
+    # Initialize ResNet50 model
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+    model = nn.Sequential(*list(model.children())[:-1])  # Remove final classification layer
+    model.to(device)
+    logging.info(f"Using device: {device}")
+
+    # Get list of video files recursively
+    videos_dir = Path(args.videos_dir)
+    clip_files = sorted(videos_dir.rglob("*.mp4"))
     if not clip_files:
-        print(f"Error: No clip files (*_x.npy) found in {args.clips_dir} or its subdirectories")
+        logging.error(f"No video files (*.mp4) found in {videos_dir} or its subdirectories")
         return
 
-    print(f"Found {len(clip_files)} clip files in {args.clips_dir} and subdirectories")
+    logging.info(f"Found {len(clip_files)} video files in {videos_dir}")
 
-    # Process each clip file with a single progress bar
-    for clip_file in tqdm(clip_files, desc="Processing clips"):
-        print(f"Processing clip file: {clip_file}")
-        clip = np.load(clip_file)
-        
-        # Extract features for the clip
-        features = extract_features(clip, model, device, batch_size=args.batch_size)
-        if len(features) == 0:
-            print(f"Warning: No features extracted for {clip_file}, skipping.")
+    # Calculate total number of clips for progress bar
+    total_clips = 0
+    for clip_file in clip_files:
+        cap = cv2.VideoCapture(str(clip_file))
+        if not cap.isOpened():
             continue
-        
-        # Save features to the same directory with updated naming
-        # Expected clip_file name: <startFrame>_to_<endFrame>_x.npy
-        base_name = clip_file.stem  # e.g., "000000_to_000124_x"
-        feature_name = base_name.replace('_x', '_resnet50')  # e.g., "000000_to_000124_resnet50"
-        feature_path = clip_file.with_name(f"{feature_name}.npy")
-        np.save(feature_path, features)
-        print(f"Saved features to {feature_path} with shape {features.shape}")
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        total_clips += math.ceil(total_frames / args.clip_length)
 
-    print("Feature extraction complete!")
+    output_dir = Path(args.output_dir)
+
+    # Process clips with a single progress bar
+    with tqdm(total=total_clips, desc="Processing clips") as pbar:
+        for clip_file in clip_files:
+            # Extract trackId and riderId from path
+            parts = clip_file.parts
+            if len(parts) < 3:
+                logging.error(f"Invalid path structure for {clip_file}, skipping")
+                pbar.update(math.ceil(total_frames / args.clip_length))
+                continue
+            rider_id = parts[-2]
+            track_id = parts[-3]
+
+            # Load the video
+            cap = cv2.VideoCapture(str(clip_file))
+            if not cap.isOpened():
+                logging.error(f"Cannot open video {clip_file}, skipping")
+                pbar.update(math.ceil(total_frames / args.clip_length))
+                continue
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            logging.debug(f"Video {clip_file} has {total_frames} frames")
+
+            # Process frames in clips of length C
+            clip_length = args.clip_length
+            for start_idx in range(0, total_frames, clip_length):
+                end_idx = min(start_idx + clip_length, total_frames)
+                clip_frames = []
+                clip_indices = list(range(start_idx, end_idx))
+
+                # Read frames for the current clip
+                for idx in clip_indices:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                    ret, frame = cap.read()
+                    if ret:
+                        clip_frames.append(frame)
+                    else:
+                        logging.warning(f"Cannot read frame {idx} from {clip_file}, padding")
+                        clip_frames.append(np.zeros((224, 224, 3), dtype=np.uint8))
+                        clip_indices.append(clip_indices[-1] if clip_indices else 0)
+
+                # Pad partial clips
+                if len(clip_frames) != clip_length:
+                    logging.debug(f"Partial clip at {start_idx}:{end_idx} with {len(clip_frames)} frames, padding")
+                    while len(clip_frames) < clip_length:
+                        clip_frames.append(np.zeros((224, 224, 3), dtype=np.uint8))
+                        clip_indices.append(clip_indices[-1] if clip_indices else 0)
+
+                # Extract features
+                features = extract_features(clip_frames, model, device, batch_size=args.feature_extraction_batch_size)
+                if features.size == 0:
+                    logging.error(f"No features extracted for clip {start_idx}:{end_idx} in {clip_file}, skipping")
+                    pbar.update(1)
+                    continue
+
+                # Save features
+                output_clip_dir = output_dir / track_id / rider_id
+                output_clip_dir.mkdir(parents=True, exist_ok=True)
+                feature_name = f"{clip_indices[0]:06d}_to_{clip_indices[-1]:06d}_resnet50"
+                feature_path = output_clip_dir / f"{feature_name}.npy"
+                np.save(feature_path, features)
+                logging.info(f"Saved features to {feature_path} with shape {features.shape}")
+
+                # Update progress bar
+                pbar.update(1)
+
+            cap.release()
+
+    logging.info("Feature extraction complete!")
 
 if __name__ == "__main__":
     main()
