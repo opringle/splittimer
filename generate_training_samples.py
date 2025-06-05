@@ -3,243 +3,261 @@ import os
 import argparse
 from pathlib import Path
 import random
+import itertools
 
-def load_frames_and_labels(video_dir):
-    """Load precomputed ResNet50 features, original frames, and corresponding labels from .npy files."""
-    features = []
-    frames = []
+def get_clip_metadata(video_dir):
+    """
+    Extract frame indices, labels, riderId, and trackId from clip files without loading video data.
+    Returns lists of frame indices, labels, and metadata.
+    """
     labels = []
     frame_indices = []
-    for npy_file in sorted(Path(video_dir).glob("*_x.npy")):
-        # Load original frame clip
-        clip_frames = np.load(npy_file)
-        frames.extend(clip_frames)
-        
-        # Load corresponding ResNet50 feature file
-        feature_file = npy_file.with_name(npy_file.stem + '_resnet50.npy')
-        if not feature_file.exists():
-            print(f"Warning: Feature file {feature_file} not found, skipping clip.")
+    clip_ranges = []
+    
+    # Extract riderId and trackId from the directory path
+    video_dir = Path(video_dir)
+    parts = video_dir.parts
+    if len(parts) < 2:
+        raise ValueError(f"Directory path {video_dir} does not match expected structure <base_dir>/<trackId>/<riderId>")
+    rider_id = parts[-1]  # e.g., "amaury_pierron"
+    track_id = parts[-2]  # e.g., "loudenvielle_2025"
+    
+    # Find all clip files
+    clip_files = sorted(video_dir.glob("*_x.npy"))
+    if not clip_files:
+        raise ValueError(f"No *_x.npy files found in directory: {video_dir}")
+    
+    # Process each clip file
+    for npy_file in clip_files:
+        # Parse frame range from filename (e.g., "000000_to_000124_x.npy")
+        filename = npy_file.stem  # e.g., "000000_to_000124_x"
+        frame_range = filename.replace('_x', '').split('_to_')
+        if len(frame_range) != 2:
+            print(f"Warning: Invalid clip filename format {npy_file}, skipping.")
             continue
-        clip_features = np.load(feature_file)
-        features.extend(clip_features)
+        start_frame, end_frame = map(int, frame_range)  # e.g., 0, 124
+        frames_in_clip = list(range(start_frame, end_frame + 1))
         
         # Load corresponding label file
-        label_file = npy_file.with_name(npy_file.stem.replace('_x', '_y') + '.npy')
+        label_file = npy_file.with_name(filename.replace('_x', '_y') + '.npy')
         if label_file.exists():
             clip_labels = np.load(label_file)
+            if len(clip_labels) != len(frames_in_clip):
+                print(f"Warning: Label length {len(clip_labels)} does not match frame count {len(frames_in_clip)} in {label_file}, skipping.")
+                continue
             labels.extend(clip_labels)
         else:
             print(f"Warning: Label file {label_file} not found, using zeros.")
-            labels.extend([0.0] * len(clip_frames))
+            labels.extend([0.0] * len(frames_in_clip))
         
-        # Track global frame indices
-        clip_idx = int(npy_file.stem.split('_')[0])
-        frames_per_clip = len(clip_frames)
-        frame_indices.extend(range(clip_idx * frames_per_clip, (clip_idx + 1) * frames_per_clip))
+        frame_indices.extend(frames_in_clip)
+        clip_ranges.append((start_frame, end_frame))
     
-    if not frames:
-        raise ValueError(f"No *_x.npy files found in directory: {video_dir}")
-    
-    frames = np.array(frames)
-    features = np.array(features)
-    labels = np.array(labels)
     frame_indices = np.array(frame_indices)
+    labels = np.array(labels)
+    print(f"Extracted metadata for {len(frame_indices)} frames from {video_dir}")
     
-    print(f"Loaded {len(frames)} frames and {len(features)} features from {video_dir}")
-    if len(frames) != len(features):
-        print(f"Warning: Number of frames ({len(frames)}) does not match number of features ({len(features)})")
-    
-    return frames, features, labels, frame_indices
+    return frame_indices, labels, rider_id, track_id, clip_ranges
 
-def get_clip_ending_at(frame_idx, frames, features, clip_length, total_frames):
-    """Extract a clip of clip_length frames and features ending at frame_idx."""
-    start_idx = max(0, frame_idx - clip_length + 1)
-    end_idx = frame_idx + 1
-    if start_idx >= end_idx or end_idx > total_frames:
-        return None, None
-    clip_frames = frames[start_idx:end_idx]
-    clip_features = features[start_idx:end_idx]
-    if len(clip_frames) < clip_length:
-        # Pad with zeros if clip is too short
-        padding_frames = np.zeros((clip_length - len(clip_frames), *clip_frames.shape[1:]), dtype=clip_frames.dtype)
-        padding_features = np.zeros((clip_length - len(clip_features), *clip_features.shape[1:]), dtype=clip_features.dtype)
-        clip_frames = np.concatenate([padding_frames, clip_frames], axis=0)
-        clip_features = np.concatenate([padding_features, clip_features], axis=0)
-    return clip_frames, clip_features
-
-def generate_training_samples(v1_frames, v1_features, v1_labels, v1_indices, v2_frames, v2_features, v2_labels, v2_indices, clip_length=125, max_negatives_per_split=10, num_augmented_per_segment=5):
-    """Generate training samples with clips and features from both videos, including augmented samples biased towards split points."""
+def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
+                              v2_indices, v2_labels, v2_rider_id, v2_track_id,
+                              max_negatives_per_positive=10, num_augmented_positives_per_segment=5):
+    """
+    Generate training samples with frame indices, riderId, and trackId from both videos.
+    Returns metadata for samples without loading video data.
+    """
     # Find split points
     v1_split_indices = v1_indices[v1_labels == 1.0]
     v2_split_indices = v2_indices[v2_labels == 1.0]
+    print(f"Found {len(v1_split_indices)} splits for {v1_rider_id}")
+    print(f"Found {len(v2_split_indices)} splits for {v2_rider_id}")
     
-    if len(v1_split_indices) == 0 or len(v2_split_indices) == 0:
-        print("Error: No split points found in one or both videos.")
-        return None, None, None, None, None
+    assert len(v1_split_indices) != 0, "No split points found in v1_split_indices"
+    assert len(v2_split_indices) != 0, "No split points found in v2_split_indices"
+    assert len(v1_split_indices) == len(v2_split_indices), f"len(v1_split_indices) {len(v1_split_indices)} not equal to len(v2_split_indices) {len(v2_split_indices)}"
     
-    if len(v1_split_indices) != len(v2_split_indices):
-        print("Error: Number of split points in video 1 and video 2 do not match.")
-        return None, None, None, None, None
+    v2_total_frames = v2_indices[-1] + 1 if len(v2_indices) > 0 else 0
     
-    v1_total_frames = len(v1_frames)
-    v2_total_frames = len(v2_frames)
-    
-    v1_clips = []
-    v1_clip_features = []
-    v2_clips = []
-    v2_clip_features = []
     sample_labels = []
-    sample_indices = []
+    sample_indices = []  # (v1_frame_idx, v2_frame_idx)
+    sample_metadata = []  # List of dicts with riderId and trackId
     
-    # Generate samples at split points (original logic)
+    # Generate samples at split points
     for pos, v1_split_idx in enumerate(v1_split_indices):
         v2_split_idx = v2_split_indices[pos]
         
-        v1_clip, v1_features_clip = get_clip_ending_at(v1_split_idx, v1_frames, v1_features, clip_length, v1_total_frames)
-        v2_clip, v2_features_clip = get_clip_ending_at(v2_split_idx, v2_frames, v2_features, clip_length, v2_total_frames)
+        # positive samples
+        sample_labels.append(1.0)
+        sample_indices.append((v1_split_idx, v2_split_idx))
+        sample_metadata.append({
+            'v1_rider_id': v1_rider_id,
+            'v1_track_id': v1_track_id,
+            'v2_rider_id': v2_rider_id,
+            'v2_track_id': v2_track_id,
+        })
         
-        if v1_clip is not None and v2_clip is not None:
-            v1_clips.append(v1_clip)
-            v1_clip_features.append(v1_features_clip)
-            v2_clips.append(v2_clip)
-            v2_clip_features.append(v2_features_clip)
-            sample_labels.append(1.0)
-            sample_indices.append((v1_split_idx, v2_split_idx))
-        
-        # Negative samples for split points
+        # Negative samples
         neg_count = 0
         attempts = 0
         max_attempts = 50
-        while neg_count < max_negatives_per_split and attempts < max_attempts:
+        while neg_count < max_negatives_per_positive and attempts < max_attempts:
+            # choose a random frame in v2
             v2_idx = random.randint(0, v2_total_frames - 1)
             if v2_idx in v2_split_indices and v2_split_indices.index(v2_idx) == pos:
+                # if the v2 split was selected, skip this iteration
                 attempts += 1
                 continue
-            v2_clip_neg, v2_features_clip_neg = get_clip_ending_at(v2_idx, v2_frames, v2_features, clip_length, v2_total_frames)
-            if v2_clip_neg is not None:
-                v1_clips.append(v1_clip)
-                v1_clip_features.append(v1_features_clip)
-                v2_clips.append(v2_clip_neg)
-                v2_clip_features.append(v2_features_clip_neg)
-                sample_labels.append(0.0)
-                sample_indices.append((v1_split_idx, v2_idx))
-                neg_count += 1
+
+            sample_labels.append(0.0)
+            sample_indices.append((v1_split_idx, v2_idx))
+            sample_metadata.append({
+                'v1_rider_id': v1_rider_id,
+                'v1_track_id': v1_track_id,
+                'v2_rider_id': v2_rider_id,
+                'v2_track_id': v2_track_id,
+            })
+            neg_count += 1
             attempts += 1
     
-    # Generate augmented samples for segments between splits, biased towards split points
+    # Augmented positive samples for segments between splits
     num_segments = len(v1_split_indices) - 1
     for seg in range(num_segments):
-        v1_start = v1_split_indices[seg]
-        v1_end = v1_split_indices[seg + 1]
-        v2_start = v2_split_indices[seg]
-        v2_end = v2_split_indices[seg + 1]
+        v1_start_seg = v1_split_indices[seg]
+        v1_end_seg = v1_split_indices[seg + 1]
+        v2_start_seg = v2_split_indices[seg]
+        v2_end_seg = v2_split_indices[seg + 1]
         
-        v1_seg_length = v1_end - v1_start
-        v2_seg_length = v2_end - v2_start
+        v1_seg_length = v1_end_seg - v1_start_seg
+        v2_seg_length = v2_end_seg - v2_start_seg
         
         # Select frames where full clips can be contained within the segment
-        possible_idx1 = list(range(v1_start + clip_length - 1, v1_end + 1))
-        if len(possible_idx1) == 0:
-            continue
+        possible_idx1 = list(range(v1_start_seg, v1_end_seg + 1))
+        # print(f"possible indices for seg {seg} in video 1 (starts at frame {v1_start_seg} and ends at {v1_end_seg}): {possible_idx1}")
         
-        # Generate relative positions with beta distribution (biased towards 0 and 1)
-        num_samples = min(num_augmented_per_segment, len(possible_idx1))
-        relative_positions = np.random.beta(0.5, 0.5, num_samples)
+        # Generate relative positions with beta distribution
+        # this is biased towards start and end of the segment ensuring we generate more data near known points
+        num_samples = min(num_augmented_positives_per_segment, len(possible_idx1))
+        rng = np.random.default_rng()
+        relative_positions = rng.beta(a=0.5, b=0.5, size=num_samples)
+        print(f"relative positions = {relative_positions}")
         
         # Map to frame indices
         min_idx = possible_idx1[0]
         max_idx = possible_idx1[-1]
         selected_idx1 = [int(min_idx + p * (max_idx - min_idx)) for p in relative_positions]
         selected_idx1 = [min(max(idx, min_idx), max_idx) for idx in selected_idx1]
+        print(f"selected_idx1={selected_idx1}")
         
         for idx1 in selected_idx1:
             # Compute relative position in video 1 segment
-            p = (idx1 - v1_start) / v1_seg_length
+            fraction_through_v1_segment = (idx1 - v1_start_seg) / v1_seg_length
+
             # Map to corresponding frame in video 2 segment
-            idx2_float = v2_start + p * v2_seg_length
+            idx2_float = v2_start_seg + fraction_through_v1_segment * v2_seg_length
             idx2 = int(round(idx2_float))
-            if idx2 < v2_start or idx2 > v2_end or idx2 - clip_length + 1 < v2_start:
-                continue
+            if idx2 < v2_start_seg or idx2 > v2_end_seg:
+                raise Exception("idx2 {idx2} is less than v2_start_seg {v2_start_seg} or greater than v2_end_seg {v2_end_seg}")
             
-            v1_clip, v1_features_clip = get_clip_ending_at(idx1, v1_frames, v1_features, clip_length, v1_total_frames)
-            v2_clip, v2_features_clip = get_clip_ending_at(idx2, v2_frames, v2_features, clip_length, v2_total_frames)
-            if v1_clip is not None and v2_clip is not None:
-                v1_clips.append(v1_clip)
-                v1_clip_features.append(v1_features_clip)
-                v2_clips.append(v2_clip)
-                v2_clip_features.append(v2_features_clip)
-                sample_labels.append(1.0)
-                sample_indices.append((idx1, idx2))
+            sample_labels.append(1.0)
+            sample_indices.append((idx1, idx2))
+            sample_metadata.append({
+                'v1_rider_id': v1_rider_id,
+                'v1_track_id': v1_track_id,
+                'v2_rider_id': v2_rider_id,
+                'v2_track_id': v2_track_id,
+            })
                 
-                # Generate negative samples for augmented positive sample
-                neg_count = 0
-                attempts = 0
-                while neg_count < max_negatives_per_split and attempts < max_attempts:
-                    random_idx2 = random.randint(0, v2_total_frames - 1)
-                    if abs(random_idx2 - idx2) < clip_length:
-                        attempts += 1
-                        continue
-                    v2_clip_neg, v2_features_clip_neg = get_clip_ending_at(random_idx2, v2_frames, v2_features, clip_length, v2_total_frames)
-                    if v2_clip_neg is not None:
-                        v1_clips.append(v1_clip)
-                        v1_clip_features.append(v1_features_clip)
-                        v2_clips.append(v2_clip_neg)
-                        v2_clip_features.append(v2_features_clip_neg)
-                        sample_labels.append(0.0)
-                        sample_indices.append((idx1, random_idx2))
-                        neg_count += 1
-                    attempts += 1
+            # Generate negative samples for augmented positive sample
+            neg_count = 0
+            attempts = 0
+            while neg_count < max_negatives_per_positive and attempts < max_attempts:
+                random_idx2 = random.randint(0, v2_total_frames - 1)
+                sample_labels.append(0.0)
+                sample_indices.append((idx1, random_idx2))
+                sample_metadata.append({
+                    'v1_rider_id': v1_rider_id,
+                    'v1_track_id': v1_track_id,
+                    'v2_rider_id': v2_rider_id,
+                    'v2_track_id': v2_track_id,
+                })
+                neg_count += 1
+                attempts += 1
     
-    return (np.array(v1_clips), np.array(v1_clip_features), np.array(v2_clips), 
-            np.array(v2_clip_features), np.array(sample_labels), np.array(sample_indices))
+    return np.array(sample_labels), np.array(sample_indices), sample_metadata
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate training data from preprocessed YouTube video clips.")
-    parser.add_argument("video1_dir", type=str, help="Path to first video's processed clips directory")
-    parser.add_argument("video2_dir", type=str, help="Path to second video's processed clips directory")
-    parser.add_argument("--output_file", type=str, default="clip_training_data.npz", help="Output file for training data")
+    # num positives = num splits + positives_per_segment * (num_splits -1)
+    # = 6 + 5 * 5 = 31 per rider combination on a given track
+    parser = argparse.ArgumentParser(description="Generate training metadata for all rider combinations on each track.")
+    parser.add_argument("clips_dir", type=str, help="Base directory containing processed clips (processed_clips/<trackId>/<riderId>)")
     parser.add_argument("--clip_length", type=int, default=125, help="Number of frames per clip")
-    parser.add_argument("--max_negatives_per_split", type=int, default=10, help="Max negative samples per split point")
-    parser.add_argument("--num_augmented_per_segment", type=int, default=5, help="Number of augmented samples per segment")
+    parser.add_argument("--max_negatives_per_positive", type=int, default=10, help="Max negative samples per split point")
+    parser.add_argument("--num_augmented_positives_per_segment", type=int, default=50, help="Number of augmented samples per segment")
     args = parser.parse_args()
     
-    # Load data from both videos
-    print(f"Loading video 1 from {args.video1_dir}")
-    v1_frames, v1_features, v1_labels, v1_indices = load_frames_and_labels(args.video1_dir)
-    print(f"Loading video 2 from {args.video2_dir}")
-    v2_frames, v2_features, v2_labels, v2_indices = load_frames_and_labels(args.video2_dir)
+    clips_base_dir = Path(args.clips_dir)
     
-    # Generate training samples
-    print("Generating training samples...")
-    v1_clips, v1_clip_features, v2_clips, v2_clip_features, sample_labels, sample_indices = generate_training_samples(
-        v1_frames, v1_features, v1_labels, v1_indices, v2_frames, v2_features, v2_labels, v2_indices,
-        clip_length=args.clip_length, 
-        max_negatives_per_split=args.max_negatives_per_split,
-        num_augmented_per_segment=args.num_augmented_per_segment
-    )
-    
-    if v1_clips is None:
-        print("Failed to generate samples.")
+    # Find all track directories
+    track_dirs = [d for d in clips_base_dir.iterdir() if d.is_dir()]
+    if not track_dirs:
+        print(f"No track directories found in {clips_base_dir}")
         return
     
-    # Save training data
-    training_data_output_path = "training_data"
-    if not os.path.exists(training_data_output_path):
-        os.makedirs(training_data_output_path)
-    training_data_file_path = os.path.join(training_data_output_path, args.output_file)
-    print(f"Saving training data to {training_data_file_path}")
-    np.savez(
-        training_data_file_path,
-        video1_clips=v1_clips,
-        video1_features=v1_clip_features,
-        video2_clips=v2_clips,
-        video2_features=v2_clip_features,
-        labels=sample_labels,
-        indices=sample_indices
-    )
+    # Process each track
+    for track_dir in track_dirs:
+        track_id = track_dir.name
+        print(f"\nProcessing track: {track_id}")
+        
+        # Find all rider directories for this track
+        rider_dirs = sorted([d for d in track_dir.iterdir() if d.is_dir()])
+        if len(rider_dirs) < 2:
+            print(f"Need at least two riders for track {track_id}, found {len(rider_dirs)}, skipping.")
+            continue
+        
+        # Generate all possible ordered pairs of riders (rider1, rider2) and (rider2, rider1)
+        rider_pairs = list(itertools.permutations(rider_dirs, 2))
+        print(f"Found {len(rider_dirs)} riders, generating samples for {len(rider_pairs)} rider pairs")
+        
+        # Process each rider pair
+        for rider_dir1, rider_dir2 in rider_pairs:
+            try:
+                # Extract metadata for both riders
+                print(f"\nExtracting metadata for rider pair: {rider_dir1.name} and {rider_dir2.name}")
+                v1_indices, v1_labels, v1_rider_id, v1_track_id, v1_clip_ranges = get_clip_metadata(rider_dir1)
+                v2_indices, v2_labels, v2_rider_id, v2_track_id, v2_clip_ranges = get_clip_metadata(rider_dir2)
+                
+                # Generate training samples
+                print(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
+                sample_labels, sample_indices, sample_metadata = generate_training_samples(
+                    v1_indices, v1_labels, v1_rider_id, v1_track_id,
+                    v2_indices, v2_labels, v2_rider_id, v2_track_id,
+                    max_negatives_per_positive=args.max_negatives_per_positive,
+                    num_augmented_positives_per_segment=args.num_augmented_positives_per_segment
+                )
+                
+                assert sample_labels is not None, f"sample_labels is None!"
+                
+                # Save training metadata
+                training_data_output_path = "training_data"
+                os.makedirs(training_data_output_path, exist_ok=True)
+                output_filename = f"training_metadata_{track_id}_{v1_rider_id}_{v2_rider_id}.npz"
+                training_data_file_path = os.path.join(training_data_output_path, output_filename)
+                print(f"Saving training metadata to {training_data_file_path}")
+                np.savez(
+                    training_data_file_path,
+                    labels=sample_labels,
+                    indices=sample_indices,
+                    metadata=np.array(sample_metadata, dtype=object)
+                )
+                
+                print(f"Generated {len(sample_labels)} samples for pair {v1_rider_id} and {v2_rider_id}: "
+                      f"{np.sum(sample_labels == 1.0)} positive, {np.sum(sample_labels == 0.0)} negative")
+            
+            except Exception as e:
+                print(f"Error processing rider pair {rider_dir1.name} and {rider_dir2.name}: {e}")
+                continue
     
-    print(f"Generated {len(sample_labels)} samples: {np.sum(sample_labels == 1.0)} positive, "
-          f"{np.sum(sample_labels == 0.0)} negative")
+    print("\nProcessing complete for all tracks and rider pairs!")
 
 if __name__ == "__main__":
     main()
