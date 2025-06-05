@@ -1,53 +1,80 @@
 import pandas as pd
 import cv2
 import numpy as np
-import torch
-import torchvision.models as models
-import torchvision.transforms as transforms
 import argparse
 from pathlib import Path
 import logging
 from tqdm import tqdm
 
-# Set up device for GPU if available
-device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
+def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, feature_base_path, clip_length):
+    """Load precomputed ResNet50 features from disk for a frame range, handling multiple clips."""
+    # Calculate expected number of frames
+    F = end_idx - start_idx + 1
+    if F <= 0:
+        logging.error(f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
+        return np.array([])
 
-# Initialize ResNet50 model
-resnet50 = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-resnet50 = torch.nn.Sequential(*list(resnet50.children())[:-1])
-resnet50.to(device)
-resnet50.eval()
-
-# Define preprocessing pipeline
-preprocess = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-
-def extract_features_batch(frames, batch_size=32):
-    """Extract features from a list of frames in batches."""
-    logging.debug(f"Extracting features from {len(frames)} frames with batch size {batch_size}")
+    # Determine which clips overlap with [start_idx, end_idx]
+    feature_base_dir = Path(feature_base_path) / track_id / rider_id
     features = []
-    for i in range(0, len(frames), batch_size):
-        batch_frames = frames[i:i + batch_size]
-        batch_tensors = [preprocess(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)) for frame in batch_frames]
-        batch_tensors = torch.stack(batch_tensors).to(device)
-        with torch.no_grad():
-            batch_features = resnet50(batch_tensors).squeeze().cpu().numpy()
-        # Handle case where batch_features is 1D (single frame in batch)
-        if len(batch_features.shape) == 1:
-            batch_features = batch_features.reshape(1, -1)
-        features.append(batch_features)
-    return np.vstack(features)
+    current_idx = start_idx
 
-def get_clip(video_path, central_idx, F, total_frames):
-    """Extract F frames from a video starting around central_idx."""
-    start = max(0, min(central_idx - F // 2, total_frames - F))
-    clip_indices = list(range(start, start + F))
+    while current_idx <= end_idx:
+        # Calculate clip boundaries
+        clip_start = (current_idx // clip_length) * clip_length
+        clip_end = min(clip_start + clip_length - 1, end_idx)
+        feature_path = feature_base_dir / f"{clip_start:06d}_to_{clip_start + clip_length - 1:06d}_resnet50.npy"
+
+        if not feature_path.exists():
+            logging.error(f"Feature file {feature_path} does not exist for range {clip_start}:{clip_start + clip_length - 1}")
+            return np.array([])
+
+        try:
+            clip_features = np.load(feature_path)
+            if clip_features.shape[1] != 2048 or clip_features.shape[0] != clip_length:
+                logging.error(f"Unexpected feature shape {clip_features.shape} in {feature_path}, expected ({clip_length}, 2048)")
+                return np.array([])
+        except Exception as e:
+            logging.error(f"Error loading features from {feature_path}: {e}")
+            return np.array([])
+
+        # Extract relevant frames from this clip
+        clip_relative_start = max(0, current_idx - clip_start)
+        clip_relative_end = min(clip_length - 1, end_idx - clip_start)
+        if clip_relative_start > clip_relative_end:
+            logging.error(f"Invalid clip range {clip_relative_start}:{clip_relative_end} in {feature_path}")
+            return np.array([])
+        clip_features_subset = clip_features[clip_relative_start:clip_relative_end + 1]
+        features.append(clip_features_subset)
+
+        current_idx = clip_start + clip_relative_end + 2  # Move to next frame after clip_end
+
+    # Concatenate features
+    features = np.concatenate(features, axis=0)
+    if features.shape[0] != F:
+        logging.error(f"Loaded {features.shape[0]} frames, expected {F} for range {start_idx}:{end_idx}")
+        return np.array([])
+
+    return features
+
+def get_clip_ending_at(video_path, end_idx, F, total_frames=None):
+    """Extract F frames from video ending at end_idx, returning frames and indices."""
+    # Validate starting frame
+    start = max(0, end_idx - F + 1)
+    if total_frames is not None and start >= total_frames:
+        logging.warning(f"Start index {start} exceeds total frames {total_frames} in {video_path}, returning empty clip")
+        return [], []
+
+    clip_indices = list(range(start, end_idx + 1))
+    if len(clip_indices) < F:
+        logging.warning(f"Clip ending at {end_idx} in {video_path} has {len(clip_indices)} frames, padding to {F}")
+        clip_indices += [clip_indices[-1]] * (F - len(clip_indices))
+
     cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        logging.error(f"Cannot open video {video_path}")
+        return [], []
+
     frames = []
     for idx in clip_indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -55,19 +82,19 @@ def get_clip(video_path, central_idx, F, total_frames):
         if ret:
             frames.append(frame)
         else:
-            logging.warning(f"Cannot read frame {idx} from {video_path}. Padding instead")
+            logging.warning(f"Cannot read frame {idx} from {video_path}, padding with zeros")
             frames.append(np.zeros((224, 224, 3), dtype=np.uint8))
     cap.release()
-    return frames
+
+    return frames, clip_indices
 
 def main():
-    # 15 seconds per sample should preprocess all samples in 24 hours
-    parser = argparse.ArgumentParser(description="Generate batched training data with optimized feature extraction.")
+    parser = argparse.ArgumentParser(description="Generate batched training data using precomputed ResNet50 features.")
     parser.add_argument("csv_path", type=str, help="Path to the CSV file")
+    parser.add_argument("image_feature_path", type=str, help="Path to directory of clip features (image_feature_path/<trackId>/<riderId>/<start_idx>_<end_idx>_resnet50.npy)")
     parser.add_argument("output_dir", type=str, help="Directory to save .npz files")
     parser.add_argument("--F", type=int, default=50, help="Number of frames per clip")
     parser.add_argument("--batch_size", type=int, default=32, help="Samples per .npz file")
-    parser.add_argument("--feature_batch_size", type=int, default=32, help="Batch size for feature extraction")
     parser.add_argument(
         "--log-level",
         type=str,
@@ -92,30 +119,44 @@ def main():
         v1_path = Path("downloaded_videos") / row.track_id / row.v1_rider_id / f"{row.track_id}_{row.v1_rider_id}.mp4"
         v2_path = Path("downloaded_videos") / row.track_id / row.v2_rider_id / f"{row.track_id}_{row.v2_rider_id}.mp4"
 
-        # Get total frames for each video
+        # Get total frames for validation
         cap1 = cv2.VideoCapture(str(v1_path))
-        total_frames1 = int(cap1.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_frames1 = int(cap1.get(cv2.CAP_PROP_FRAME_COUNT)) if cap1.isOpened() else 0
         cap1.release()
         cap2 = cv2.VideoCapture(str(v2_path))
-        total_frames2 = int(cap2.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_frames2 = int(cap2.get(cv2.CAP_PROP_FRAME_COUNT)) if cap2.isOpened() else 0
         cap2.release()
 
-        # Extract frames
-        v1_frames = get_clip(v1_path, row.v1_frame_idx, args.F, total_frames1)
-        v2_frames = get_clip(v2_path, row.v2_frame_idx, args.F, total_frames2)
+        # Extract frames and indices
+        v1_frames, v1_indices = get_clip_ending_at(v1_path, row.v1_frame_idx, args.F, total_frames1)
+        v2_frames, v2_indices = get_clip_ending_at(v2_path, row.v2_frame_idx, args.F, total_frames2)
 
-        # Extract features in batches and append position
-        v1_features = extract_features_batch(v1_frames, batch_size=args.feature_batch_size)
-        v1_features_with_pos = [np.append(feat, float(pos)) for pos, feat in enumerate(v1_features)]
-        v1_clip = np.stack(v1_features_with_pos, axis=0)
+        if len(v1_frames) != args.F or len(v2_frames) != args.F:
+            logging.error(f"Failed to extract {args.F} frames for sample {row.Index}, skipping")
+            continue
 
-        v2_features = extract_features_batch(v2_frames, batch_size=args.feature_batch_size)
-        v2_features_with_pos = [np.append(feat, float(pos)) for pos, feat in enumerate(v2_features)]
-        v2_clip = np.stack(v2_features_with_pos, axis=0)
+        # Load precomputed features
+        v1_start_idx = v1_indices[0]
+        v1_end_idx = v1_indices[-1]
+        v1_features = load_image_features_from_disk(row.track_id, row.v1_rider_id, v1_start_idx, v1_end_idx, args.image_feature_path, args.F)
+        if v1_features.size == 0 or v1_features.shape[0] != args.F:
+            logging.error(f"Failed to load features for v1 clip {v1_start_idx}:{v1_end_idx} in {row.Index}, skipping")
+            continue
+
+        v2_start_idx = v2_indices[0]
+        v2_end_idx = v2_indices[-1]
+        v2_features = load_image_features_from_disk(row.track_id, row.v2_rider_id, v2_start_idx, v2_end_idx, args.image_feature_path, args.F)
+        if v2_features.size == 0 or v2_features.shape[0] != args.F:
+            logging.error(f"Failed to load features for v2 clip {v2_start_idx}:{v2_end_idx} in {row.Index}, skipping")
+            continue
+
+        # Append absolute frame indices as 2049th feature
+        v1_features_with_pos = np.concatenate([v1_features, np.array(v1_indices, dtype=np.float32)[:, None]], axis=1)  # Shape: (F, 2049)
+        v2_features_with_pos = np.concatenate([v2_features, np.array(v2_indices, dtype=np.float32)[:, None]], axis=1)  # Shape: (F, 2049)
 
         # Add to batch
-        batch_clip1s.append(v1_clip)
-        batch_clip2s.append(v2_clip)
+        batch_clip1s.append(v1_features_with_pos)
+        batch_clip2s.append(v2_features_with_pos)
         batch_labels.append(row.label)
 
         # Save batch when full
@@ -126,6 +167,7 @@ def main():
                 clip2s=np.stack(batch_clip2s, axis=0),
                 labels=np.array(batch_labels)
             )
+            logging.info(f"Saved batch {batch_count} with {len(batch_clip1s)} samples to {output_dir}")
             batch_clip1s, batch_clip2s, batch_labels = [], [], []
             batch_count += 1
 
@@ -137,6 +179,7 @@ def main():
             clip2s=np.stack(batch_clip2s, axis=0),
             labels=np.array(batch_labels)
         )
+        logging.info(f"Saved final batch {batch_count} with {len(batch_clip1s)} samples to {output_dir}")
 
     logging.info(f"Generated {len(df)} samples in {batch_count + 1} batches in {output_dir}")
 
