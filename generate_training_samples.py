@@ -40,8 +40,8 @@ def get_video_metadata(video_path, splits, rider_id, track_id):
     return frame_indices, labels, rider_id, track_id
 
 def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
-                              v2_indices, v2_labels, v2_rider_id, v2_track_id,
-                              max_negatives_per_positive=10, num_augmented_positives_per_segment=5):
+                             v2_indices, v2_labels, v2_rider_id, v2_track_id,
+                             max_negatives_per_positive=10, num_augmented_positives_per_segment=5):
     v1_split_indices = v1_indices[v1_labels == 1.0]
     v2_split_indices = v2_indices[v2_labels == 1.0]
     v2_frame_idx_to_split_number = {int(idx): i for i, idx in enumerate(v2_split_indices)}
@@ -57,6 +57,7 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
     sample_indices = []
     sample_metadata = []
     
+    # Generate samples at split points (positive samples, type "split")
     for split_number, v1_split_idx in enumerate(v1_split_indices):
         v2_split_idx = v2_split_indices[split_number]
         
@@ -67,8 +68,10 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
             'v1_track_id': v1_track_id,
             'v2_rider_id': v2_rider_id,
             'v2_track_id': v2_track_id,
+            'sample_type': 'split'
         })
         
+        # Negative samples for split points
         neg_count = 0
         attempts = 0
         max_attempts = 50
@@ -85,10 +88,12 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
                 'v1_track_id': v1_track_id,
                 'v2_rider_id': v2_rider_id,
                 'v2_track_id': v2_track_id,
+                'sample_type': 'negative'
             })
             neg_count += 1
             attempts += 1
     
+    # Augmented positive samples for segments (type "augmented")
     num_segments = len(v1_split_indices) - 1
     for seg in range(num_segments):
         v1_start_seg = v1_split_indices[seg]
@@ -124,8 +129,10 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
                 'v1_track_id': v1_track_id,
                 'v2_rider_id': v2_rider_id,
                 'v2_track_id': v2_track_id,
+                'sample_type': 'augmented'
             })
             
+            # Negative samples for augmented positives
             neg_count = 0
             attempts = 0
             while neg_count < max_negatives_per_positive and attempts < max_attempts:
@@ -137,6 +144,7 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
                     'v1_track_id': v1_track_id,
                     'v2_rider_id': v2_rider_id,
                     'v2_track_id': v2_track_id,
+                    'sample_type': 'negative'
                 })
                 neg_count += 1
                 attempts += 1
@@ -202,6 +210,7 @@ def main():
                 'v1_frame_idx': [idx[0] for idx in sample_indices],
                 'v2_frame_idx': [idx[1] for idx in sample_indices],
                 'label': sample_labels,
+                'sample_type': [meta['sample_type'] for meta in sample_metadata]
             }
             df = pd.DataFrame(data)
             dfs.append(df)

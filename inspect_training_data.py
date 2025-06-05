@@ -37,6 +37,11 @@ def main():
     # Load the CSV file
     df = pd.read_csv(args.csv_path)
 
+    # Ensure sample_type column exists
+    if 'sample_type' not in df.columns:
+        logging.error("CSV file does not contain 'sample_type' column")
+        return
+
     # Filter positive and negative samples
     df_pos = df[df['label'] == 1.0]
     df_neg = df[df['label'] == 0.0]
@@ -86,6 +91,7 @@ def main():
         v2_rider_id = row.v2_rider_id
         v1_frame_idx = row.v1_frame_idx
         v2_frame_idx = row.v2_frame_idx
+        sample_type = row.sample_type
 
         # Construct video paths
         v1_path = Path("downloaded_videos") / track_id / v1_rider_id / f"{track_id}_{v1_rider_id}.mp4"
@@ -110,10 +116,10 @@ def main():
         plt.imsave(frame1_path, frame1)
         plt.imsave(frame2_path, frame2)
 
-        # Add to HTML
+        # Add to HTML with sample_type
         html += f"""
         <div class="sample">
-        <h3>{label_type} sample: {v1_rider_id} frame {v1_frame_idx} and {v2_rider_id} frame {v2_frame_idx}</h3>
+        <h3>{label_type} sample (Type: {sample_type}): {v1_rider_id} frame {v1_frame_idx} and {v2_rider_id} frame {v2_frame_idx}</h3>
         <img src="frames/sample_{i}_v1.png">
         <img src="frames/sample_{i}_v2.png">
         </div>
