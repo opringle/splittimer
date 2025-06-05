@@ -47,7 +47,7 @@ python generate_training_samples.py --config video_config.yaml --max_negatives_p
 Inspect the training data
 
 ```bash
-python inspect_training_data.py training_data/training_metadata.csv --num_samples_per_class 3
+python inspect_training_data.py training_data/training_metadata.csv --num_samples 3 && open ./training_data_inspection/index.html
 ```
 
 Preprocess videos into training samples and save to disk

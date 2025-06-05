@@ -2,3 +2,4 @@ processed_clips/
 downloaded_videos/
 training_data/
 .DS_Store
+training_data_inspection/
