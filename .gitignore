@@ -5,4 +5,4 @@ training_data/
 training_data_inspection/
 *.npy
 runs/
-checkpoints
+artifacts/

@@ -103,16 +103,24 @@ def count_parameters(model):
 def main():
     parser = argparse.ArgumentParser(description="Train a position classifier on preprocessed video clip data.")
     parser.add_argument('data_dir', type=str, help='Directory containing .npz files with preprocessed data')
+    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
+
+    # hyperparameters
     parser.add_argument('--num_epochs', type=int, default=1500, help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate for optimizer')
-    parser.add_argument('--val_ratio', type=float, default=0.2, help='Ratio of data for validation')
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
-    parser.add_argument('--eval_interval', type=int, default=10, help='Evaluate the model on the validation set every N epochs')
-    parser.add_argument('--checkpoint_interval', type=int, default=10, help='Save model checkpoint every N epochs')
     parser.add_argument('--bidirectional', action='store_true', help='Use bidirectional LSTM')
     parser.add_argument('--compress_sizes', type=str, default='1024,512', help='Comma-separated list of sizes for compression layers, e.g., "1024,512"')
     parser.add_argument('--post_lstm_sizes', type=str, default='256,128', help='Comma-separated list of sizes for post-LSTM layers, e.g., "256,128"')
     parser.add_argument('--hidden_size', type=int, default=256, help='Hidden size of LSTM')
+
+    # validation
+    parser.add_argument('--val_ratio', type=float, default=0.2, help='Ratio of data for validation')
+    parser.add_argument('--eval_interval', type=int, default=10, help='Evaluate the model on the validation set every N epochs')
+    
+    # artifacts
+    parser.add_argument('--checkpoint_interval', type=int, default=10, help='Save model checkpoint every N epochs')
+    parser.add_argument('--resume_from', type=str, default=None, help='Path to checkpoint to resume training from')
+    parser.add_argument('--artifacts_dir', type=str, default=None, help='Directory for TensorBoard logs and checkpoints. If not specified, a new one will be created.')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -121,14 +129,21 @@ def main():
     compress_sizes = [int(x) for x in args.compress_sizes.split(',')] if args.compress_sizes else []
     post_lstm_sizes = [int(x) for x in args.post_lstm_sizes.split(',')] if args.post_lstm_sizes else []
 
-    # Set up TensorBoard
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_dir = f'runs/experiment_{timestamp}'
-    writer = SummaryWriter(log_dir)
-    logging.info(f'TensorBoard logs will be saved in {log_dir}. Run `tensorboard --logdir=runs` to view.')
+    # Set up artifacts directory
+    if args.artifacts_dir:
+        artifacts_dir = Path(args.artifacts_dir)
+    else:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        artifacts_dir = Path(f'artifacts/experiment_{timestamp}')
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    logging.info(f'Artifacts will be saved in {artifacts_dir}')
 
-    # Set up checkpoint directory
-    checkpoint_dir = Path('checkpoints')
+    # Set up TensorBoard
+    writer = SummaryWriter(log_dir=artifacts_dir)
+    logging.info(f'TensorBoard logs will be saved in {artifacts_dir}. Run `tensorboard --logdir={artifacts_dir}` to view.')
+
+    # Set up checkpoint directory within artifacts
+    checkpoint_dir = artifacts_dir / 'checkpoints'
     checkpoint_dir.mkdir(exist_ok=True)
     logging.info(f'Checkpoints will be saved in {checkpoint_dir}')
 
@@ -151,14 +166,29 @@ def main():
     input_size = 2049
     model = PositionClassifier(input_size, args.hidden_size, bidirectional=args.bidirectional, compress_sizes=compress_sizes, post_lstm_sizes=post_lstm_sizes).to(args.device)
     
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    # Handle resuming from checkpoint
+    start_epoch = 0
+    if args.resume_from:
+        if os.path.isfile(args.resume_from):
+            checkpoint = torch.load(args.resume_from)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch'] + 1
+            logging.info(f"Resuming training from epoch {start_epoch}")
+        else:
+            logging.error(f"Checkpoint file {args.resume_from} not found")
+            exit(1)
+    else:
+        logging.info("Starting training from scratch")
+
     # Log the total number of trainable parameters
     total_params = count_parameters(model)
     logging.info(f"Total trainable parameters: {total_params}")
     
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-
-    for epoch in range(args.num_epochs):
+    for epoch in range(start_epoch, args.num_epochs):
         model.train()
         total_loss = 0.0
         total_samples = 0
@@ -192,11 +222,6 @@ def main():
                     loss = criterion(outputs.squeeze(), labels)
                     val_loss += loss.item() * labels.size(0)
                     total_samples += labels.size(0)
-                    preds = torch.sigmoid(outputs).squeeze() > 0.5
-                    all_preds.extend(preds.cpu().numpy())
-                    all_labels.extend(labels.cpu().numpy())
-            
-            
             val_loss = val_loss / total_samples
             
             # Compute classification report string and dictionary
@@ -224,7 +249,12 @@ def main():
         # Save checkpoint
         if (epoch + 1) % args.checkpoint_interval == 0 or epoch == args.num_epochs - 1:
             checkpoint_path = checkpoint_dir / f'checkpoint_epoch_{epoch+1}.pth'
-            torch.save(model.state_dict(), checkpoint_path)
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+            }
+            torch.save(checkpoint, checkpoint_path)
             logging.info(f'Saved checkpoint at epoch {epoch+1} to {checkpoint_path}')
 
     writer.close()
