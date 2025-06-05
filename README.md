@@ -28,6 +28,12 @@ Download youtube videos based on config file
 python youtube_download.py --config video_config.yaml
 ```
 
+Compute image features from frames and save to disk
+
+```bash
+python extract_clip_features.py downloaded_videos video_features --feature-extraction-batch-size=5 --clip-length=50 --log-level DEBUG
+```
+
 Generate generalized training data for identifying splits
 
 ```bash
@@ -40,12 +46,6 @@ Inspect the training data
 python inspect_training_data.py training_data/training_metadata.csv --num_samples 10 && open ./training_data_inspection/index.html
 ```
 
-Compute image features from frames and save to disk
-
-```bash
-python extract_clip_features.py downloaded_videos video_features --feature-extraction-batch-size=5 --clip-length=50 --log-level DEBUG
-```
-
 Preprocess videos into training samples and save to disk
 
 ```bash
@@ -55,5 +55,5 @@ python preprocess_videos_into_samples.py training_data/training_metadata.csv vid
 Train and evaluate a model on the data
 
 ```bash
-python train_position_classifier.py training_data
+python train_position_classifier.py training_data --bidirectional --compress_sizes 1024,512 --hidden_size 256 --post_lstm_sizes 256,128
 ```

@@ -26,33 +26,97 @@ class NPZDataset(Dataset):
         return torch.from_numpy(clip1), torch.from_numpy(clip2), torch.from_numpy(label)
 
 class PositionClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, bidirectional=False, compress_sizes=[], post_lstm_sizes=[]):
         super(PositionClassifier, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, bidirectional=False)
-        self.fc = nn.Linear(2 * hidden_size, 1)
+        self.bidirectional = bidirectional
+        
+        # Build compression layers
+        if compress_sizes:
+            layers = []
+            in_size = input_size
+            for size in compress_sizes:
+                layers.append(nn.Linear(in_size, size))
+                layers.append(nn.ReLU())
+                in_size = size
+            self.compression = nn.Sequential(*layers)
+            lstm_input_size = compress_sizes[-1]
+        else:
+            self.compression = nn.Identity()
+            lstm_input_size = input_size
+        
+        # LSTM layer
+        self.lstm = nn.LSTM(lstm_input_size, hidden_size, batch_first=True, bidirectional=bidirectional)
+        
+        # Determine the size of the concatenated hidden states
+        lstm_output_size = 2 * hidden_size if bidirectional else hidden_size
+        concat_size = 2 * lstm_output_size
+        
+        # Build post-LSTM layers
+        if post_lstm_sizes:
+            layers = []
+            in_size = concat_size
+            for size in post_lstm_sizes:
+                layers.append(nn.Linear(in_size, size))
+                layers.append(nn.ReLU())
+                in_size = size
+            self.post_lstm = nn.Sequential(*layers)
+            final_input_size = post_lstm_sizes[-1]
+        else:
+            self.post_lstm = nn.Identity()
+            final_input_size = concat_size
+        
+        # Final fully connected layer for classification
+        self.fc = nn.Linear(final_input_size, 1)
 
     def forward(self, clip1, clip2):
-        # clip1 and clip2: (B, F, 2049)
-        _, (h1, _) = self.lstm(clip1)  # h1: (1, B, hidden_size)
-        h1 = h1.squeeze(0)  # (B, hidden_size)
-        _, (h2, _) = self.lstm(clip2)
-        h2 = h2.squeeze(0)  # (B, hidden_size)
-        combined = torch.cat((h1, h2), dim=1)  # (B, 2*hidden_size)
-        output = self.fc(combined)  # (B, 1)
+        # Apply compression to each clip
+        compressed_clip1 = self.compression(clip1)  # (B, F, lstm_input_size)
+        compressed_clip2 = self.compression(clip2)  # (B, F, lstm_input_size)
+        
+        # Pass through LSTM
+        if self.bidirectional:
+            _, (h_n, _) = self.lstm(compressed_clip1)
+            h1 = torch.cat((h_n[-2], h_n[-1]), dim=1)  # Last forward and backward hidden states
+            _, (h_n, _) = self.lstm(compressed_clip2)
+            h2 = torch.cat((h_n[-2], h_n[-1]), dim=1)
+        else:
+            _, (h1, _) = self.lstm(compressed_clip1)
+            h1 = h1[-1]  # Last hidden state
+            _, (h2, _) = self.lstm(compressed_clip2)
+            h2 = h2[-1]
+        
+        # Concatenate the hidden states from both clips
+        combined = torch.cat((h1, h2), dim=1)
+        
+        # Pass through post-LSTM layers
+        post_lstm_output = self.post_lstm(combined)
+        
+        # Final classification layer
+        output = self.fc(post_lstm_output)
         return output
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def main():
     parser = argparse.ArgumentParser(description="Train a position classifier on preprocessed video clip data.")
     parser.add_argument('data_dir', type=str, help='Directory containing .npz files with preprocessed data')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of training epochs')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate for optimizer')
-    parser.add_argument('--hidden_size', type=int, default=256, help='Hidden size of LSTM')
+    parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate for optimizer')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='Ratio of data for validation')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
     parser.add_argument('--eval_interval', type=int, default=10, help='Evaluate the model on the validation set every N epochs')
+    parser.add_argument('--bidirectional', action='store_true', help='Use bidirectional LSTM')
+    parser.add_argument('--compress_sizes', type=str, default='32', help='Comma-separated list of sizes for compression layers, e.g., "1024,512"')
+    parser.add_argument('--post_lstm_sizes', type=str, default='', help='Comma-separated list of sizes for post-LSTM layers, e.g., "256,128"')
+    parser.add_argument('--hidden_size', type=int, default=32, help='Hidden size of LSTM')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
+
+    # Parse compress_sizes and post_lstm_sizes
+    compress_sizes = [int(x) for x in args.compress_sizes.split(',')] if args.compress_sizes else []
+    post_lstm_sizes = [int(x) for x in args.post_lstm_sizes.split(',')] if args.post_lstm_sizes else []
 
     data_dir = Path(args.data_dir)
     all_files = list(data_dir.glob('*.npz'))
@@ -71,7 +135,12 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4)
 
     input_size = 2049
-    model = PositionClassifier(input_size, args.hidden_size).to(args.device)
+    model = PositionClassifier(input_size, args.hidden_size, bidirectional=args.bidirectional, compress_sizes=compress_sizes, post_lstm_sizes=post_lstm_sizes).to(args.device)
+    
+    # Log the total number of trainable parameters
+    total_params = count_parameters(model)
+    logging.info(f"Total trainable parameters: {total_params}")
+    
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
