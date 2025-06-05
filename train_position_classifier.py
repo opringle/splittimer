@@ -104,7 +104,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train a position classifier on preprocessed video clip data.")
     parser.add_argument('data_dir', type=str, help='Directory containing .npz files with preprocessed data')
     parser.add_argument('--num_epochs', type=int, default=1500, help='Number of training epochs')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate for optimizer')
+    parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate for optimizer')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='Ratio of data for validation')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
     parser.add_argument('--eval_interval', type=int, default=10, help='Evaluate the model on the validation set every N epochs')

@@ -58,5 +58,5 @@ python preprocess_videos_into_samples.py training_data/training_metadata.csv vid
 Train and evaluate a model on the data
 
 ```bash
-python train_position_classifier.py training_data --bidirectional --compress_sizes 1024,512 --hidden_size 256 --post_lstm_sizes 256,128
+python train_position_classifier.py training_data --bidirectional --compress_sizes 1024,512 --hidden_size 256 --post_lstm_sizes 256,128 --learning_rate 0.0001
 ```
