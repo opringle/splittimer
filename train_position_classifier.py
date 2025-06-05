@@ -28,7 +28,7 @@ class NPZDataset(Dataset):
 class PositionClassifier(nn.Module):
     def __init__(self, input_size, hidden_size):
         super(PositionClassifier, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, bidirectional=False)
         self.fc = nn.Linear(2 * hidden_size, 1)
 
     def forward(self, clip1, clip2):
@@ -112,7 +112,7 @@ def main():
                     all_preds.extend(preds.cpu().numpy())
                     all_labels.extend(labels.cpu().numpy())
             val_loss = val_loss / total_samples
-            report = classification_report(all_labels, all_preds, target_names=['Class 0', 'Class 1'])
+            report = classification_report(all_labels, all_preds, target_names=['Class 0', 'Class 1'], zero_division=0)
             logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
             logging.info(f'Classification Report:\n{report}')
 
