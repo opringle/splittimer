@@ -110,6 +110,9 @@ def main():
     logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
     df = pd.read_csv(args.csv_path)
+    # shuffle the samples
+    df = df.sample(frac=1, random_state=None, ignore_index=True)
+    
     logging.info(f"Loaded metadata for {len(df)} training samples")
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

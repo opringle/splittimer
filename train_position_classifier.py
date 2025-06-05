@@ -222,29 +222,37 @@ def main():
                     loss = criterion(outputs.squeeze(), labels)
                     val_loss += loss.item() * labels.size(0)
                     total_samples += labels.size(0)
-            val_loss = val_loss / total_samples
+                    preds = torch.sigmoid(outputs).squeeze() > 0.5
+                    all_preds.extend(preds.cpu().numpy().astype(int))
+                    all_labels.extend(labels.cpu().numpy().astype(int))
+
+            val_loss = val_loss / total_samples if total_samples > 0 else float('inf')
             
             # Compute classification report string and dictionary
-            report_str = classification_report(all_labels, all_preds, target_names=['Class 0', 'Class 1'], zero_division=0)
-            report_dict = classification_report(all_labels, all_preds, target_names=['Class 0', 'Class 1'], zero_division=0, output_dict=True)
+            if all_labels:  # Only generate report if there are labels
+                report_str = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0)
+                report_dict = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0, output_dict=True)
 
-            # Log to console
-            logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
-            logging.info(f'Classification Report:\n{report_str}')
+                # Log to console
+                logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
+                logging.info(f'Classification Report:\n{report_str}')
 
-            # Log to TensorBoard
-            writer.add_scalar('Loss/val', val_loss, epoch)
-            writer.add_scalar('Accuracy/val', report_dict['accuracy'], epoch)
-            for class_name in ['Class 0', 'Class 1']:
-                writer.add_scalar(f'Precision/val/{class_name}', report_dict[class_name]['precision'], epoch)
-                writer.add_scalar(f'Recall/val/{class_name}', report_dict[class_name]['recall'], epoch)
-                writer.add_scalar(f'F1-score/val/{class_name}', report_dict[class_name]['f1-score'], epoch)
-            writer.add_scalar('Macro Avg/Precision/val', report_dict['macro avg']['precision'], epoch)
-            writer.add_scalar('Macro Avg/Recall/val', report_dict['macro avg']['recall'], epoch)
-            writer.add_scalar('Macro Avg/F1-score/val', report_dict['macro avg']['f1-score'], epoch)
-            writer.add_scalar('Weighted Avg/Precision/val', report_dict['weighted avg']['precision'], epoch)
-            writer.add_scalar('Weighted Avg/Recall/val', report_dict['weighted avg']['recall'], epoch)
-            writer.add_scalar('Weighted Avg/F1-score/val', report_dict['weighted avg']['f1-score'], epoch)        
+                # Log to TensorBoard
+                writer.add_scalar('Loss/val', val_loss, epoch)
+                writer.add_scalar('Accuracy/val', report_dict['accuracy'], epoch)
+                for class_name in ['Class 0', 'Class 1']:
+                    writer.add_scalar(f'Precision/val/{class_name}', report_dict[class_name]['precision'], epoch)
+                    writer.add_scalar(f'Recall/val/{class_name}', report_dict[class_name]['recall'], epoch)
+                    writer.add_scalar(f'F1-score/val/{class_name}', report_dict[class_name]['f1-score'], epoch)
+                writer.add_scalar('Macro Avg/Precision/val', report_dict['macro avg']['precision'], epoch)
+                writer.add_scalar('Macro Avg/Recall/val', report_dict['macro avg']['recall'], epoch)
+                writer.add_scalar('Macro Avg/F1-score/val', report_dict['macro avg']['f1-score'], epoch)
+                writer.add_scalar('Weighted Avg/Precision/val', report_dict['weighted avg']['precision'], epoch)
+                writer.add_scalar('Weighted Avg/Recall/val', report_dict['weighted avg']['recall'], epoch)
+                writer.add_scalar('Weighted Avg/F1-score/val', report_dict['weighted avg']['f1-score'], epoch)
+            else:
+                logging.warning(f'Epoch {epoch+1}: No predictions or labels collected for validation')
+     
 
         # Save checkpoint
         if (epoch + 1) % args.checkpoint_interval == 0 or epoch == args.num_epochs - 1:
