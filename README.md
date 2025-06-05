@@ -1,14 +1,4 @@
 
-## Notes
-
-- [x] download youtube videos and create X,Y pairs containing preprocessed clips and labelled splits
-- [x] compute resnet50 features for all clips and store on disk
-- [x] try simply finding the frame with the highest cosine similarity - doesn't work well
-- [ ] intelligently generate training data from splits https://grok.com/share/bGVnYWN5_b89bd234-5e76-4ca3-9ef3-3dd2c1054768 
-- [ ] train a dedicated model
-- [ ] refactor the code to allow different model types (resnet cosine similarity, mlp on resnet features etc)
-- [ ] keep refining until accuracy is 100% on unseen videos
-
 ## Prerequisites
 
 - install pyenv
@@ -50,20 +40,20 @@ Inspect the training data
 python inspect_training_data.py training_data/training_metadata.csv --num_samples 10 && open ./training_data_inspection/index.html
 ```
 
-Extract image features from frames and save to disk
+Compute image features from frames and save to disk
 
 ```bash
-python extract_clip_features.py downloaded_videos video_features --feature-extraction-batch-size=50 --clip-length=50 --log-level DEBUG
+python extract_clip_features.py downloaded_videos video_features --feature-extraction-batch-size=5 --clip-length=50 --log-level DEBUG
 ```
 
 Preprocess videos into training samples and save to disk
 
 ```bash
-python preprocess_videos_into_samples.py training_data/training_metadata.csv training_data --F=50 --batch_size=32 --feature_batch_size=50 --log-level DEBUG
+python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --batch_size=32 --log-level DEBUG
 ```
 
 Train and evaluate a model on the data
 
 ```bash
-python train_position_classifier.py
+python train_position_classifier.py training_data
 ```
