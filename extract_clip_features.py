@@ -113,10 +113,21 @@ def main():
             clip_length = args.clip_length
             for start_idx in range(0, total_frames, clip_length):
                 end_idx = min(start_idx + clip_length, total_frames)
-                clip_frames = []
-                clip_indices = list(range(start_idx, end_idx))
+                first_frame = start_idx
+                last_frame = end_idx - 1
+                output_clip_dir = output_dir / track_id / rider_id
+                feature_name = f"{first_frame:06d}_to_{last_frame:06d}_resnet50.npy"
+                feature_path = output_clip_dir / feature_name
+
+                # Check if feature file already exists
+                if feature_path.exists():
+                    logging.info(f"Feature file already exists for clip {first_frame} to {last_frame} in {clip_file}, skipping")
+                    pbar.update(1)
+                    continue
 
                 # Read frames for the current clip
+                clip_frames = []
+                clip_indices = list(range(start_idx, end_idx))
                 for idx in clip_indices:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
                     ret, frame = cap.read()
@@ -142,10 +153,7 @@ def main():
                     continue
 
                 # Save features
-                output_clip_dir = output_dir / track_id / rider_id
                 output_clip_dir.mkdir(parents=True, exist_ok=True)
-                feature_name = f"{clip_indices[0]:06d}_to_{clip_indices[-1]:06d}_resnet50"
-                feature_path = output_clip_dir / f"{feature_name}.npy"
                 np.save(feature_path, features)
                 logging.info(f"Saved features to {feature_path} with shape {features.shape}")
 
