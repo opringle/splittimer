@@ -42,10 +42,11 @@ def get_video_metadata(video_path, splits, rider_id, track_id):
 def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
                              v2_indices, v2_labels, v2_rider_id, v2_track_id,
                              max_negatives_per_positive=10, num_augmented_positives_per_segment=5):
+    assert v1_track_id == v2_track_id, "Track IDs must be the same for v1 and v2"
     v1_split_indices = v1_indices[v1_labels == 1.0]
     v2_split_indices = v2_indices[v2_labels == 1.0]
     v2_frame_idx_to_split_number = {int(idx): i for i, idx in enumerate(v2_split_indices)}
-    logging.info(f"Found {len(v1_split_indices)} splits")
+    logging.debug(f"Found {len(v1_split_indices)} splits")
     
     assert len(v1_split_indices) != 0, "No split points found in v1_split_indices"
     assert len(v2_split_indices) != 0, "No split points found in v2_split_indices"
@@ -156,10 +157,11 @@ def main():
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     parser.add_argument("--max_negatives_per_positive", type=int, default=10, help="Max negative samples per split point")
     parser.add_argument("--num_augmented_positives_per_segment", type=int, default=50, help="Number of augmented samples per segment")
+    parser.add_argument("--val_ratio", type=float, default=0.2, help="Ratio of tracks to use for validation (between 0 and 1)")
     parser.add_argument(
         "--log-level",
         type=str,
-        default="INFO",
+        default='INFO',
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the logging level (default: INFO)"
     )
@@ -176,11 +178,26 @@ def main():
     for video in videos:
         track_videos[video['trackId']].append(video)
     
+    # Split tracks into training and validation sets
+    track_ids = list(track_videos.keys())
+    if len(track_ids) < 2:
+        logging.error(f"Need at least two tracks for splitting, found {len(track_ids)}")
+        exit(1)
+    random.shuffle(track_ids)
+    # Ensure at least one validation track if tracks > 1
+    num_val_tracks = max(1, int(args.val_ratio * len(track_ids)))
+    val_tracks = track_ids[:num_val_tracks]
+    val_tracks_set = set(val_tracks)
+    logging.info(f"Assigned {len(val_tracks)} tracks to validation: {', '.join(val_tracks)}")
+    logging.info(f"Assigned {len(track_ids) - len(val_tracks)} tracks to training: {', '.join(set(track_ids) - val_tracks_set)}")
+    
     dfs = []
     for track_id, track_videos_list in track_videos.items():
         if len(track_videos_list) < 2:
             logging.warning(f"Need at least two riders for track {track_id}, found {len(track_videos_list)}, skipping.")
             continue
+        # Assign all samples from this track to either 'train' or 'val'
+        set_type = 'val' if track_id in val_tracks_set else 'train'
         video_pairs = list(itertools.permutations(track_videos_list, 2))
         logging.info(f"Found {len(track_videos_list)} riders for track {track_id}, generating samples for {len(video_pairs)} pairs")
         for video1, video2 in video_pairs:
@@ -195,7 +212,7 @@ def main():
             v1_indices, v1_labels, v1_rider_id, v1_track_id = get_video_metadata(str(video_path1), video1['splits'], rider_id1, track_id)
             v2_indices, v2_labels, v2_rider_id, v2_track_id = get_video_metadata(str(video_path2), video2['splits'], rider_id2, track_id)
             
-            logging.info(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
+            logging.debug(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
             sample_labels, sample_indices, sample_metadata = generate_training_samples(
                 v1_indices, v1_labels, v1_rider_id, v1_track_id,
                 v2_indices, v2_labels, v2_rider_id, v2_track_id,
@@ -210,12 +227,13 @@ def main():
                 'v1_frame_idx': [idx[0] for idx in sample_indices],
                 'v2_frame_idx': [idx[1] for idx in sample_indices],
                 'label': sample_labels,
-                'sample_type': [meta['sample_type'] for meta in sample_metadata]
+                'sample_type': [meta['sample_type'] for meta in sample_metadata],
+                'set': [set_type] * len(sample_labels)
             }
             df = pd.DataFrame(data)
             dfs.append(df)
             
-            logging.info(f"Generated {len(sample_labels)} samples for pair {v1_rider_id} and {v2_rider_id}: "
+            logging.debug(f"Generated {len(sample_labels)} samples for pair {v1_rider_id} and {v2_rider_id}: "
                          f"{np.sum(sample_labels == 1.0)} positive, {np.sum(sample_labels == 0.0)} negative")
     
     if dfs:
@@ -225,7 +243,7 @@ def main():
         output_filename = "training_metadata.csv"
         training_data_file_path = os.path.join(training_data_output_path, output_filename)
         df.to_csv(training_data_file_path, index=False)
-        logging.info(f"Saved training metadata to {training_data_file_path}")
+        logging.info(f"Saved {len(df)} training metadata to {training_data_file_path}")
     else:
         logging.info("No training samples generated.")
 

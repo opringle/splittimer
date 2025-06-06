@@ -102,7 +102,7 @@ def count_parameters(model):
 
 def main():
     parser = argparse.ArgumentParser(description="Train a position classifier on preprocessed video clip data.")
-    parser.add_argument('data_dir', type=str, help='Directory containing .npz files with preprocessed data')
+    parser.add_argument('data_dir', type=str, help='Base directory containing train and val subdirectories with .npz files')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
 
     # hyperparameters
@@ -114,7 +114,6 @@ def main():
     parser.add_argument('--hidden_size', type=int, default=256, help='Hidden size of LSTM')
 
     # validation
-    parser.add_argument('--val_ratio', type=float, default=0.2, help='Ratio of data for validation')
     parser.add_argument('--eval_interval', type=int, default=10, help='Evaluate the model on the validation set every N epochs')
     
     # artifacts
@@ -147,21 +146,35 @@ def main():
     checkpoint_dir.mkdir(exist_ok=True)
     logging.info(f'Checkpoints will be saved in {checkpoint_dir}')
 
+    # Load train and val files from subdirectories
     data_dir = Path(args.data_dir)
-    all_files = list(data_dir.glob('*.npz'))
-    if not all_files:
-        logging.error('No .npz files found in the directory')
+    train_dir = data_dir / 'train'
+    val_dir = data_dir / 'val'
+
+    if not train_dir.exists() or not val_dir.exists():
+        logging.error('Both train and val subdirectories must exist in the data_dir')
         exit(1)
 
-    random.shuffle(all_files)
-    val_size = int(len(all_files) * args.val_ratio)
-    train_files = all_files[val_size:]
-    val_files = all_files[:val_size]
+    train_files = list(train_dir.glob('*.npz'))
+    val_files = list(val_dir.glob('*.npz'))
+
+    if not train_files:
+        logging.error('No .npz files found in the train directory')
+        exit(1)
+
+    if not val_files:
+        logging.warning('No .npz files found in the val directory; proceeding without validation')
+
+    logging.info(f"Loaded {len(train_files)} training files")
+    if val_files:
+        logging.info(f"Loaded {len(val_files)} validation files")
+    else:
+        logging.info("No validation files found; skipping validation")
 
     train_dataset = NPZDataset(train_files)
-    val_dataset = NPZDataset(val_files)
+    val_dataset = NPZDataset(val_files) if val_files else None
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4) if val_dataset else None
 
     input_size = 2049
     model = PositionClassifier(input_size, args.hidden_size, bidirectional=args.bidirectional, compress_sizes=compress_sizes, post_lstm_sizes=post_lstm_sizes).to(args.device)
@@ -208,51 +221,53 @@ def main():
         writer.add_scalar('Loss/train', train_loss, epoch)
 
         if (epoch + 1) % args.eval_interval == 0 or epoch == args.num_epochs - 1:
-            model.eval()
-            val_loss = 0.0
-            total_samples = 0
-            all_preds = []
-            all_labels = []
-            with torch.no_grad():
-                for clip1, clip2, labels in val_loader:
-                    clip1 = clip1.to(args.device).flatten(start_dim=0, end_dim=1)
-                    clip2 = clip2.to(args.device).flatten(start_dim=0, end_dim=1)
-                    labels = labels.to(args.device).flatten(start_dim=0, end_dim=1)
-                    outputs = model(clip1, clip2)
-                    loss = criterion(outputs.squeeze(), labels)
-                    val_loss += loss.item() * labels.size(0)
-                    total_samples += labels.size(0)
-                    preds = torch.sigmoid(outputs).squeeze() > 0.5
-                    all_preds.extend(preds.cpu().numpy().astype(int))
-                    all_labels.extend(labels.cpu().numpy().astype(int))
+            if val_loader:
+                model.eval()
+                val_loss = 0.0
+                total_samples = 0
+                all_preds = []
+                all_labels = []
+                with torch.no_grad():
+                    for clip1, clip2, labels in val_loader:
+                        clip1 = clip1.to(args.device).flatten(start_dim=0, end_dim=1)
+                        clip2 = clip2.to(args.device).flatten(start_dim=0, end_dim=1)
+                        labels = labels.to(args.device).flatten(start_dim=0, end_dim=1)
+                        outputs = model(clip1, clip2)
+                        loss = criterion(outputs.squeeze(), labels)
+                        val_loss += loss.item() * labels.size(0)
+                        total_samples += labels.size(0)
+                        preds = torch.sigmoid(outputs).squeeze() > 0.5
+                        all_preds.extend(preds.cpu().numpy().astype(int))
+                        all_labels.extend(labels.cpu().numpy().astype(int))
 
-            val_loss = val_loss / total_samples if total_samples > 0 else float('inf')
-            
-            # Compute classification report string and dictionary
-            if all_labels:  # Only generate report if there are labels
-                report_str = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0)
-                report_dict = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0, output_dict=True)
+                val_loss = val_loss / total_samples if total_samples > 0 else float('inf')
+                
+                # Compute classification report string and dictionary
+                if all_labels:  # Only generate report if there are labels
+                    report_str = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0)
+                    report_dict = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0, output_dict=True)
 
-                # Log to console
-                logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
-                logging.info(f'Classification Report:\n{report_str}')
+                    # Log to console
+                    logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
+                    logging.info(f'Classification Report:\n{report_str}')
 
-                # Log to TensorBoard
-                writer.add_scalar('Loss/val', val_loss, epoch)
-                writer.add_scalar('Accuracy/val', report_dict['accuracy'], epoch)
-                for class_name in ['Class 0', 'Class 1']:
-                    writer.add_scalar(f'Precision/val/{class_name}', report_dict[class_name]['precision'], epoch)
-                    writer.add_scalar(f'Recall/val/{class_name}', report_dict[class_name]['recall'], epoch)
-                    writer.add_scalar(f'F1-score/val/{class_name}', report_dict[class_name]['f1-score'], epoch)
-                writer.add_scalar('Macro Avg/Precision/val', report_dict['macro avg']['precision'], epoch)
-                writer.add_scalar('Macro Avg/Recall/val', report_dict['macro avg']['recall'], epoch)
-                writer.add_scalar('Macro Avg/F1-score/val', report_dict['macro avg']['f1-score'], epoch)
-                writer.add_scalar('Weighted Avg/Precision/val', report_dict['weighted avg']['precision'], epoch)
-                writer.add_scalar('Weighted Avg/Recall/val', report_dict['weighted avg']['recall'], epoch)
-                writer.add_scalar('Weighted Avg/F1-score/val', report_dict['weighted avg']['f1-score'], epoch)
+                    # Log to TensorBoard
+                    writer.add_scalar('Loss/val', val_loss, epoch)
+                    writer.add_scalar('Accuracy/val', report_dict['accuracy'], epoch)
+                    for class_name in ['Class 0', 'Class 1']:
+                        writer.add_scalar(f'Precision/val/{class_name}', report_dict[class_name]['precision'], epoch)
+                        writer.add_scalar(f'Recall/val/{class_name}', report_dict[class_name]['recall'], epoch)
+                        writer.add_scalar(f'F1-score/val/{class_name}', report_dict[class_name]['f1-score'], epoch)
+                    writer.add_scalar('Macro Avg/Precision/val', report_dict['macro avg']['precision'], epoch)
+                    writer.add_scalar('Macro Avg/Recall/val', report_dict['macro avg']['recall'], epoch)
+                    writer.add_scalar('Macro Avg/F1-score/val', report_dict['macro avg']['f1-score'], epoch)
+                    writer.add_scalar('Weighted Avg/Precision/val', report_dict['weighted avg']['precision'], epoch)
+                    writer.add_scalar('Weighted Avg/Recall/val', report_dict['weighted avg']['recall'], epoch)
+                    writer.add_scalar('Weighted Avg/F1-score/val', report_dict['weighted avg']['f1-score'], epoch)
+                else:
+                    logging.warning(f'Epoch {epoch+1}: No predictions or labels collected for validation')
             else:
-                logging.warning(f'Epoch {epoch+1}: No predictions or labels collected for validation')
-     
+                logging.info(f'Epoch {epoch+1}: Skipping validation as no validation files are present')
 
         # Save checkpoint
         if (epoch + 1) % args.checkpoint_interval == 0 or epoch == args.num_epochs - 1:

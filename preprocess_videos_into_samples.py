@@ -32,7 +32,7 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
         if range_info:
             clip_ranges.append((range_info[0], range_info[1], file_path))
         else:
-            logging.warning(f"Skipping invalid file name: {file_path.name}")
+            logging.error(f"Skipping invalid file name: {file_path.name}")
 
     if not clip_ranges:
         logging.error(f"No valid feature files found in {feature_base_dir}")
@@ -90,11 +90,24 @@ def get_clip_indices_ending_at(end_idx, F):
         clip_indices += [clip_indices[-1]] * (F - len(clip_indices))
     return clip_indices[:F]  # Ensure exactly F indices
 
+def save_batch(save_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):
+    """Save a batch of clips and labels to an .npz file in the specified directory."""
+    batch_clip_1_tensor = np.stack(batch_clip1s, axis=0)
+    batch_clip_2_tensor = np.stack(batch_clip2s, axis=0)
+    batch_label_tensor = np.array(batch_labels)
+    np.savez(
+        save_dir / f"batch_{batch_count:06d}.npz",
+        clip1s=batch_clip_1_tensor,
+        clip2s=batch_clip_2_tensor,
+        labels=batch_label_tensor
+    )
+    logging.debug(f"Saved batch {batch_count} to {save_dir}. Clip1 features shape = {batch_clip_1_tensor.shape} Clip2 features shape = {batch_clip_2_tensor.shape}. Labels shape = {batch_label_tensor.shape}")
+
 def main():
     parser = argparse.ArgumentParser(description="Generate batched training data using precomputed ResNet50 features.")
-    parser.add_argument("csv_path", type=str, help="Path to the CSV file")
+    parser.add_argument("csv_path", type=str, help="Path to the CSV file with 'set' column ('train' or 'val')")
     parser.add_argument("image_feature_path", type=str, help="Path to directory of clip features (image_feature_path/<trackId>/<riderId>/<start_idx>_<end_idx>_resnet50.npy)")
-    parser.add_argument("output_dir", type=str, help="Directory to save .npz files")
+    parser.add_argument("output_dir", type=str, help="Directory to save .npz files (will create 'train' and 'val' subdirectories)")
     parser.add_argument("--F", type=int, default=50, help="Number of frames per clip")
     parser.add_argument("--batch_size", type=int, default=32, help="Samples per .npz file")
     parser.add_argument(
@@ -109,19 +122,36 @@ def main():
     log_level = getattr(logging, args.log_level.upper())
     logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
+    # Load and validate CSV
     df = pd.read_csv(args.csv_path)
-    # shuffle the samples
+    if 'set' not in df.columns:
+        logging.error("CSV file must contain a 'set' column indicating 'train' or 'val'")
+        exit(1)
+    
+    # Shuffle samples
     df = df.sample(frac=1, random_state=None, ignore_index=True)
     
-    logging.info(f"Loaded metadata for {len(df)} training samples")
+    # Compute train and val sample counts
+    num_train = (df['set'] == 'train').sum()
+    num_val = (df['set'] == 'val').sum()
+    logging.info(f"Loaded metadata for {num_train} training and {num_val} validation samples")
+
+    # Create output directories
     output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    train_dir = output_dir / 'train'
+    val_dir = output_dir / 'val'
+    train_dir.mkdir(parents=True, exist_ok=True)
+    val_dir.mkdir(parents=True, exist_ok=True)
 
-    batch_clip1s, batch_clip2s, batch_labels = [], [], []
-    batch_count = 0
+    # Initialize batch lists and counters
+    train_batch_clip1s, train_batch_clip2s, train_batch_labels = [], [], []
+    val_batch_clip1s, val_batch_clip2s, val_batch_labels = [], [], []
+    train_batch_count = 0
+    val_batch_count = 0
 
+    # Process samples
     for row in tqdm(df.itertuples(), total=len(df), desc="Generating samples"):
-        # Compute clip indices directly
+        # Compute clip indices
         v1_indices = get_clip_indices_ending_at(row.v1_frame_idx, args.F)
         v2_indices = get_clip_indices_ending_at(row.v2_frame_idx, args.F)
 
@@ -144,39 +174,41 @@ def main():
             logging.error(f"Failed to load features for v2 clip {v2_start_idx}:{v2_end_idx} in {row.Index}, skipping")
             continue
 
-        # Append absolute frame indices as 2049th feature
+        # Append frame indices as features
         v1_features_with_pos = np.concatenate([v1_features, np.array(v1_indices, dtype=np.float32)[:, None]], axis=1)
         v2_features_with_pos = np.concatenate([v2_features, np.array(v2_indices, dtype=np.float32)[:, None]], axis=1)
 
-        # Add to batch
-        batch_clip1s.append(v1_features_with_pos)
-        batch_clip2s.append(v2_features_with_pos)
-        batch_labels.append(row.label)
+        # Append to appropriate batch based on 'set'
+        if row.set == 'train':
+            train_batch_clip1s.append(v1_features_with_pos)
+            train_batch_clip2s.append(v2_features_with_pos)
+            train_batch_labels.append(row.label)
+            if len(train_batch_clip1s) >= args.batch_size:
+                save_batch(train_dir, train_batch_count, train_batch_clip1s, train_batch_clip2s, train_batch_labels)
+                train_batch_clip1s, train_batch_clip2s, train_batch_labels = [], [], []
+                train_batch_count += 1
+        elif row.set == 'val':
+            val_batch_clip1s.append(v1_features_with_pos)
+            val_batch_clip2s.append(v2_features_with_pos)
+            val_batch_labels.append(row.label)
+            if len(val_batch_clip1s) >= args.batch_size:
+                save_batch(val_dir, val_batch_count, val_batch_clip1s, val_batch_clip2s, val_batch_labels)
+                val_batch_clip1s, val_batch_clip2s, val_batch_labels = [], [], []
+                val_batch_count += 1
+        else:
+            logging.warning(f"Unknown set value: {row.set} for sample {row.Index}, skipping")
 
-        # Save batch when full
-        if len(batch_clip1s) >= args.batch_size:
-            save_batch(output_dir, batch_count, batch_clip1s,batch_clip2s,batch_labels)
-            batch_clip1s, batch_clip2s, batch_labels = [], [], []
-            batch_count += 1
+    # Save remaining batches
+    if train_batch_clip1s:
+        save_batch(train_dir, train_batch_count, train_batch_clip1s, train_batch_clip2s, train_batch_labels)
+        train_batch_count += 1
+    if val_batch_clip1s:
+        save_batch(val_dir, val_batch_count, val_batch_clip1s, val_batch_clip2s, val_batch_labels)
+        val_batch_count += 1
 
-    # Save remaining samples
-    if batch_clip1s:
-        save_batch(output_dir, batch_count, batch_clip1s,batch_clip2s,batch_labels)
-
-    logging.info(f"Generated {len(df)} samples in {batch_count + 1} batches in {output_dir}")
-
-def save_batch(output_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):
-    batch_clip_1_tensor = np.stack(batch_clip1s, axis=0)
-    batch_clip_2_tensor = np.stack(batch_clip2s, axis=0)
-    batch_label_tensor = np.array(batch_labels)
-    np.savez(
-            output_dir / f"batch_{batch_count:06d}.npz",
-            clip1s=batch_clip_1_tensor,
-            clip2s=batch_clip_2_tensor,
-            labels=batch_label_tensor
-        )
-    logging.info(f"Saved batch {batch_count} to {output_dir}. Clip1 features shape = {batch_clip_1_tensor.shape} Clip2 features shape = {batch_clip_2_tensor.shape}. Labels shape = {batch_label_tensor.shape}")
-
+    # Log completion
+    logging.info(f"Generated {num_train} training samples in {train_batch_count} batches in {train_dir}")
+    logging.info(f"Generated {num_val} validation samples in {val_batch_count} batches in {val_dir}")
 
 if __name__ == "__main__":
     main()
