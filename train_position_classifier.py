@@ -28,17 +28,19 @@ class NPZDataset(Dataset):
         return torch.from_numpy(clip1), torch.from_numpy(clip2), torch.from_numpy(label)
 
 class PositionClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, bidirectional=False, compress_sizes=[], post_lstm_sizes=[]):
+    def __init__(self, input_size, hidden_size, bidirectional=False, compress_sizes=[], post_lstm_sizes=[], dropout=0.0):
         super(PositionClassifier, self).__init__()
         self.bidirectional = bidirectional
         
-        # Build compression layers
+        # Build compression layers with dropout
         if compress_sizes:
             layers = []
             in_size = input_size
             for size in compress_sizes:
                 layers.append(nn.Linear(in_size, size))
                 layers.append(nn.ReLU())
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
                 in_size = size
             self.compression = nn.Sequential(*layers)
             lstm_input_size = compress_sizes[-1]
@@ -53,13 +55,15 @@ class PositionClassifier(nn.Module):
         lstm_output_size = 2 * hidden_size if bidirectional else hidden_size
         concat_size = 2 * lstm_output_size
         
-        # Build post-LSTM layers
+        # Build post-LSTM layers with dropout
         if post_lstm_sizes:
             layers = []
             in_size = concat_size
             for size in post_lstm_sizes:
                 layers.append(nn.Linear(in_size, size))
                 layers.append(nn.ReLU())
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
                 in_size = size
             self.post_lstm = nn.Sequential(*layers)
             final_input_size = post_lstm_sizes[-1]
@@ -112,6 +116,7 @@ def main():
     parser.add_argument('--compress_sizes', type=str, default='1024,512', help='Comma-separated list of sizes for compression layers, e.g., "1024,512"')
     parser.add_argument('--post_lstm_sizes', type=str, default='256,128', help='Comma-separated list of sizes for post-LSTM layers, e.g., "256,128"')
     parser.add_argument('--hidden_size', type=int, default=256, help='Hidden size of LSTM')
+    parser.add_argument('--dropout', type=float, default=0.0, help='Dropout probability for compression and post-LSTM layers')
 
     # validation
     parser.add_argument('--eval_interval', type=int, default=10, help='Evaluate the model on the validation set every N epochs')
@@ -177,7 +182,14 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4) if val_dataset else None
 
     input_size = 2049
-    model = PositionClassifier(input_size, args.hidden_size, bidirectional=args.bidirectional, compress_sizes=compress_sizes, post_lstm_sizes=post_lstm_sizes).to(args.device)
+    model = PositionClassifier(
+        input_size, 
+        args.hidden_size, 
+        bidirectional=args.bidirectional, 
+        compress_sizes=compress_sizes, 
+        post_lstm_sizes=post_lstm_sizes,
+        dropout=args.dropout
+    ).to(args.device)
     
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)

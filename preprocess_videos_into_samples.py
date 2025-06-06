@@ -38,12 +38,16 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
         logging.error(f"No valid feature files found in {feature_base_dir}")
         return np.array([])
 
+    logging.debug(f"Found {len(clip_ranges)} clips for {track_id}/{rider_id}")
+
     # Find overlapping clips
     overlapping_clips = [
         (clip_start, clip_end, file_path)
         for clip_start, clip_end, file_path in clip_ranges
         if clip_start <= end_idx and clip_end >= start_idx
     ]
+
+    logging.debug(f"Overlapping clips for [{start_idx}, {end_idx}]: {[(clip_start, clip_end) for clip_start, clip_end, _ in overlapping_clips]}")
 
     if not overlapping_clips:
         logging.error(f"No clips overlap with range [{start_idx}, {end_idx}]")
@@ -54,6 +58,7 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
     for clip_start, clip_end, file_path in overlapping_clips:
         try:
             clip_features = np.load(file_path)
+            logging.debug(f"Loaded {file_path} with shape {clip_features.shape}")
             if clip_features.shape[1] != 2048:
                 logging.error(f"Unexpected feature shape {clip_features.shape} in {file_path}, expected (N, 2048)")
                 return np.array([])
@@ -68,6 +73,7 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
         rel_end = extract_end - clip_start
         if rel_start <= rel_end:
             clip_features_subset = clip_features[rel_start:rel_end + 1]
+            logging.debug(f"Extracted from {file_path}: frames [{extract_start}:{extract_end}] relative [{rel_start}:{rel_end+1}], shape {clip_features_subset.shape}")
             features.append(clip_features_subset)
 
     if not features:
@@ -76,6 +82,7 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
 
     # Concatenate features into a single array
     features = np.concatenate(features, axis=0)
+    logging.debug(f"Concatenated features shape: {features.shape}, expected F={F}")
     if features.shape[0] != F:
         logging.error(f"Loaded {features.shape[0]} frames, expected {F} for range {start_idx}:{end_idx}")
         return np.array([])
@@ -151,32 +158,41 @@ def main():
 
     # Process samples
     for row in tqdm(df.itertuples(), total=len(df), desc="Generating samples"):
+
         # Compute clip indices
         v1_indices = get_clip_indices_ending_at(row.v1_frame_idx, args.F)
         v2_indices = get_clip_indices_ending_at(row.v2_frame_idx, args.F)
 
-        if len(v1_indices) != args.F or len(v2_indices) != args.F:
-            logging.error(f"Failed to compute {args.F} indices for sample {row.Index}, skipping")
-            continue
-
-        # Load precomputed features
+        # Set start and end indices for loading features
         v1_start_idx = v1_indices[0]
         v1_end_idx = v1_indices[-1]
-        v1_features = load_image_features_from_disk(row.track_id, row.v1_rider_id, v1_start_idx, v1_end_idx, args.image_feature_path)
-        if v1_features.size == 0 or v1_features.shape[0] != args.F:
-            logging.error(f"Failed to load features for v1 clip {v1_start_idx}:{v1_end_idx} in {row.Index}, skipping")
-            continue
-
         v2_start_idx = v2_indices[0]
         v2_end_idx = v2_indices[-1]
-        v2_features = load_image_features_from_disk(row.track_id, row.v2_rider_id, v2_start_idx, v2_end_idx, args.image_feature_path)
-        if v2_features.size == 0 or v2_features.shape[0] != args.F:
-            logging.error(f"Failed to load features for v2 clip {v2_start_idx}:{v2_end_idx} in {row.Index}, skipping")
+
+        # Load precomputed features for v1
+        v1_features = load_image_features_from_disk(row.track_id, row.v1_rider_id, v1_start_idx, v1_end_idx, args.image_feature_path)
+        if v1_features.size == 0 or v1_features.shape[0] != (v1_end_idx - v1_start_idx + 1):
+            logging.error(f"Failed to load features for v1 clip {v1_start_idx}:{v1_end_idx} in {row.Index}, expected {v1_end_idx - v1_start_idx + 1} frames, got {v1_features.shape[0] if v1_features.size > 0 else 0}")
             continue
 
-        # Append frame indices as features
-        v1_features_with_pos = np.concatenate([v1_features, np.array(v1_indices, dtype=np.float32)[:, None]], axis=1)
-        v2_features_with_pos = np.concatenate([v2_features, np.array(v2_indices, dtype=np.float32)[:, None]], axis=1)
+        # Create padded features for v1
+        v1_features_padded = np.array([v1_features[idx - v1_start_idx] for idx in v1_indices])
+        if v1_features.shape[0] != v1_features_padded.shape[0]:
+            logging.debug(f"padded features from shape = {v1_features.shape} to {v1_features_padded.shape}")
+
+        # Load precomputed features for v2
+        v2_features = load_image_features_from_disk(row.track_id, row.v2_rider_id, v2_start_idx, v2_end_idx, args.image_feature_path)
+        if v2_features.size == 0 or v2_features.shape[0] != (v2_end_idx - v2_start_idx + 1):
+            logging.error(f"Failed to load features for v2 clip {v2_start_idx}:{v2_end_idx} in {row.Index}, expected {v2_end_idx - v2_start_idx + 1} frames, got {v2_features.shape[0] if v2_features.size > 0 else 0}")
+            continue
+
+        # Create padded features for v2
+        v2_features_padded = np.array([v2_features[idx - v2_start_idx] for idx in v2_indices])
+        
+
+        # Append absolute frame indices as the 2049th feature
+        v1_features_with_pos = np.concatenate([v1_features_padded, np.array(v1_indices, dtype=np.float32)[:, None]], axis=1)
+        v2_features_with_pos = np.concatenate([v2_features_padded, np.array(v2_indices, dtype=np.float32)[:, None]], axis=1)
 
         # Append to appropriate batch based on 'set'
         if row.set == 'train':
