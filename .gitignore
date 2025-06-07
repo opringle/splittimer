@@ -6,3 +6,4 @@ training_data_inspection/
 *.npy
 runs/
 artifacts/
+__pycache__/

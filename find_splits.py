@@ -1,154 +1,171 @@
+import torch
 import numpy as np
 import argparse
-import matplotlib.pyplot as plt
 from pathlib import Path
+import logging
+import json
 from tqdm import tqdm
-from pprint import pprint
+import yaml
+from utils import PositionClassifier, pad_features_to_length, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range
 
-def load_frames_and_labels(video_dir):
-    """Load precomputed ResNet50 features, original frames, and corresponding labels from .npy files."""
-    features = []
-    frames = []
-    labels = []
-    frame_indices = []
-    for npy_file in sorted(Path(video_dir).glob("*_x.npy")):
-        # Load original frame clip for display
-        clip_frames = np.load(npy_file)
-        frames.extend(clip_frames)
-        
-        # Load corresponding ResNet50 feature file
-        feature_file = npy_file.with_name(npy_file.stem + '_resnet50.npy')
-        if not feature_file.exists():
-            print(f"Warning: Feature file {feature_file} not found, skipping clip.")
-            continue
-        clip_features = np.load(feature_file)
-        features.extend(clip_features)
-        
-        # Load corresponding label file
-        label_file = npy_file.with_name(npy_file.stem.replace('_x', '_y') + '.npy')
-        if label_file.exists():
-            clip_labels = np.load(label_file)
-            labels.extend(clip_labels)
-        else:
-            print(f"Warning: Label file {label_file} not found, skipping.")
-            labels.extend([0.0] * len(clip_frames))
-        
-        # Track global frame indices
-        clip_idx = int(npy_file.stem.split('_')[0])
-        frames_per_clip = len(clip_frames)
-        frame_indices.extend(range(clip_idx * frames_per_clip, (clip_idx + 1) * frames_per_clip))
+def parse_timestamp(timestamp):
+    """Parse a timestamp in MM:SS:FF format into minutes, seconds, and frames."""
+    parts = timestamp.split(':')
+    if len(parts) != 3:
+        raise ValueError(f"Invalid timestamp format: {timestamp}. Expected MM:SS:FF")
+    minutes = int(parts[0])
+    seconds = int(parts[1])
+    frames = int(parts[2])
+    return minutes, seconds, frames
+
+def timestamp_to_frame(timestamp, frame_rate):
+    """Convert a timestamp in MM:SS:FF format to a frame index."""
+    minutes, seconds, frames = parse_timestamp(timestamp)
+    total_frames = (minutes * 60 + seconds) * frame_rate + frames
+    return int(total_frames)
+
+def load_source_splits(config_path, track_id, source_rider_id):
+    """
+    Load source splits from the video_config.yaml file for the given track and rider.
+
+    Args:
+        config_path (str): Path to the video_config.yaml file.
+        track_id (str): Track identifier (e.g., 'loudenvielle_2025').
+        source_rider_id (str): Source rider identifier (e.g., 'amaury_pierron').
+
+    Returns:
+        list: List of split timestamps in MM:SS:FF format.
+
+    Exits:
+        If no matching video is found, logs an error and exits with code 1.
+    """
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
     
-    frames = np.array(frames)
-    features = np.array(features)
-    labels = np.array(labels)
-    print(f"Loaded {len(frames)} frames and {len(features)} features from {video_dir}")
-    if len(frames) != len(features):
-        print(f"Warning: Number of frames ({len(frames)}) does not match number of features ({len(features)})")
-    return frames, features, labels, frame_indices
-
-def display_frames(frame1, frame2, title1, title2):
-    """Display two frames side by side."""
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-    frame1 = frame1.copy().transpose(1, 2, 0)
-    frame2 = frame2.copy().transpose(1, 2, 0)
-    frame1 = (frame1 * std + mean) * 255
-    frame2 = (frame2 * std + mean) * 255
-    frame1 = frame1.astype(np.uint8)
-    frame2 = frame2.astype(np.uint8)
-
-    plt.figure(figsize=(10, 5))
-    plt.subplot(1, 2, 1)
-    plt.imshow(frame1)
-    plt.title(title1)
-    plt.axis('off')
-    plt.subplot(1, 2, 2)
-    plt.imshow(frame2)
-    plt.title(title2)
-    plt.axis('off')
-    plt.show()
+    # Find videos matching the track_id and source_rider_id
+    matching_videos = [
+        video for video in config.get('videos', [])
+        if video.get('trackId') == track_id and video.get('riderId') == source_rider_id
+    ]
+    
+    if not matching_videos:
+        logging.error(f"No configuration found for track {track_id} and rider {source_rider_id} in {config_path}")
+        exit(1)
+    
+    if len(matching_videos) > 1:
+        logging.warning(f"Multiple videos found for track {track_id} and rider {source_rider_id}. Using the first one.")
+    
+    video = matching_videos[0]
+    splits = video.get('splits', [])
+    
+    if not splits:
+        logging.warning(f"No splits found for track {track_id} and rider {source_rider_id}")
+    
+    return splits
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare split frames from two processed YouTube videos using precomputed ResNet50 features and evaluate predictions.")
-    parser.add_argument("video_dir1", type=str, help="Path to first video's processed clips directory")
-    parser.add_argument("video_dir2", type=str, help="Path to second video's processed clips directory")
+    parser = argparse.ArgumentParser(description="Find corresponding splits in target video based on source video splits.")
+    parser.add_argument('--config_path', type=str, required=True, help='Path to video_config.yaml file')
+    parser.add_argument('--feature_base_path', type=str, required=True, help='Base directory containing trackId/riderId/clip_files')
+    parser.add_argument('--trackId', type=str, required=True, help='Track identifier')
+    parser.add_argument('--sourceRiderId', type=str, required=True, help='Source rider identifier')
+    parser.add_argument('--targetRiderId', type=str, required=True, help='Target rider identifier')
+    parser.add_argument('--checkpoint_path', type=str, required=True, help='Path to the model checkpoint file')
+    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use (cuda or cpu)')
+    parser.add_argument('--output_file', type=str, default='predicted_splits.json', help='Output JSON file for predicted splits')
+    parser.add_argument('--F', type=int, default=50, help='Number of frames per clip')
+    parser.add_argument('--frame_rate', type=float, required=True, help='Frame rate of the videos (frames per second)')
+    parser.add_argument('--stride', type=int, default=1, help='Stride for generating candidate split points in the target video')
+    parser.add_argument('--threshold', type=float, default=0.5, help='Threshold for considering a target clip as a split')
     args = parser.parse_args()
 
-    print(f"Loading frames, features, and labels from {args.video_dir1}")
-    frames1, features1, labels1, indices1 = load_frames_and_labels(args.video_dir1)
-    print(f"Loading frames, features, and labels from {args.video_dir2}")
-    frames2, features2, labels2, indices2 = load_frames_and_labels(args.video_dir2)
+    setup_logging()
 
-    if len(frames1) == 0 or len(frames2) == 0 or len(features1) == 0 or len(features2) == 0:
-        print("Error: No frames or features found in one or both directories.")
-        return
+    # Set up directories
+    source_video_dir = Path(args.feature_base_path) / args.trackId / args.sourceRiderId
+    target_video_dir = Path(args.feature_base_path) / args.trackId / args.targetRiderId
 
-    # Identify split frames (where labels == 1.0)
-    split_indices1 = np.where(labels1 == 1.0)[0]
-    split_indices2 = np.where(labels2 == 1.0)[0]
-    if len(split_indices1) == 0:
-        print("Error: No split frames (label 1.0) found in first video.")
-        return
-    if len(split_indices2) == 0:
-        print("Error: No split frames (label 1.0) found in second video.")
-        return
-    if len(split_indices1) != len(split_indices2):
-        print(f"Error: Number of split frames in video 1 ({len(split_indices1)}) does not match video 2 ({len(split_indices2)}).")
-        return
+    # Load model
+    model, _, _ = PositionClassifier.load(args.checkpoint_path, args.device)
+    model.eval()
+    logging.info(f"Loaded model from {args.checkpoint_path}")
 
-    print(f"Found {len(split_indices1)} split frames in first video")
-    print(f"Found {len(split_indices2)} split frames in second video")
+    # Load source split timestamps from YAML
+    source_timestamps = load_source_splits(args.config_path, args.trackId, args.sourceRiderId)
+    logging.info(f"Loaded {len(source_timestamps)} source splits from {args.config_path} for track {args.trackId} and rider {args.sourceRiderId}")
 
-    # Evaluate predictions
-    correct_predictions = 0
-    total_predictions = len(split_indices1)
-    split_matches = []
+    # Convert timestamps to frame indices
+    source_end_indices = [timestamp_to_frame(ts, args.frame_rate) for ts in source_timestamps]
 
-    # Process each split frame
-    for split_idx in tqdm(split_indices1, desc="Processing split frames"):
-        selected_frame = frames1[split_idx]
-        selected_feature = features1[split_idx]
-        global_idx = indices1[split_idx]
-        print(f"Processing split frame {global_idx} from first video")
+    # Determine total frames in target video
+    target_npy_files = list(target_video_dir.glob("*.npy"))
+    if not target_npy_files:
+        logging.error(f"No .npy files found in {target_video_dir}")
+        exit(1)
+    max_end_idx = max([parse_clip_range(file.name)[1] for file in target_npy_files])
+    total_frames = max_end_idx + 1
+    logging.info(f"Target video has {total_frames} frames")
 
-        # Compute similarities with second video frames
-        similarities = np.dot(features2, selected_feature.T).flatten()
-        max_similarity_idx = np.argmax(similarities)
-        max_similarity = similarities[max_similarity_idx]
+    # Generate candidate end indices
+    candidate_end_indices = list(range(args.F - 1, total_frames, args.stride))
+    logging.info(f"Generated {len(candidate_end_indices)} candidate split points with stride {args.stride}")
 
-        # Check if the predicted frame is a split frame in video 2
-        is_correct = labels2[max_similarity_idx] == 1.0
-        if is_correct:
-            correct_predictions += 1
-        split_matches.append({
-            'video1_idx': global_idx,
-            'video2_predicted_idx': indices2[max_similarity_idx],
-            'video2_actual_idx': indices2[split_indices2[split_indices1.tolist().index(split_idx)]],
-            'similarity': max_similarity,
-            'is_correct': is_correct
-        })
+    # Generate source split clips
+    source_samples = {}
+    for source_end_idx in source_end_indices:
+        indices = get_clip_indices_ending_at(source_end_idx, args.F)
+        start_idx = indices[0]
+        features = load_image_features_from_disk(args.trackId, args.sourceRiderId, start_idx, source_end_idx, args.feature_base_path)
+        if features.size == 0:
+            logging.warning(f"Failed to load features for source split at {source_end_idx}")
+            continue
+        # Pad features to match F
+        padded_features = pad_features_to_length(features, indices, args.F)
+        features_with_pos = np.concatenate([padded_features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
+        source_samples[source_end_idx] = torch.from_numpy(features_with_pos).unsqueeze(0).to(args.device)
+    logging.info(f"Generated {len(source_samples)} source split clips")
 
-        print(f"Most similar frame index: {indices2[max_similarity_idx]}, Similarity: {max_similarity:.4f}, Correct: {is_correct}")
+    if not source_samples:
+        logging.error("No source split clips generated")
+        exit(1)
 
-        # Display the split frame and its most similar frame
-        display_frames(
-            selected_frame,
-            frames2[max_similarity_idx],
-            f"Split Frame (Video 1, idx {global_idx})",
-            f"Most Similar Frame (Video 2, idx {indices2[max_similarity_idx]})"
-        )
+    # Process target video frames
+    predicted_splits = []
+    for end_idx in tqdm(candidate_end_indices, desc="Processing target frames"):
+        indices = get_clip_indices_ending_at(end_idx, args.F)
+        start_idx = indices[0]
+        features = load_image_features_from_disk(args.trackId, args.targetRiderId, start_idx, end_idx, args.feature_base_path)
+        if features.size == 0:
+            continue
+        features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
+        target_clip = torch.from_numpy(features_with_pos).unsqueeze(0).to(args.device)
 
-    # Compute and print evaluation metrics
-    accuracy = (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
-    print(f"\nEvaluation Results:")
-    print(f"Total split frames: {total_predictions}")
-    print(f"Correctly predicted split frames: {correct_predictions}")
-    print(f"Accuracy: {accuracy:.2f}%")
+        # Find maximum similarity to any source split
+        max_score = -1
+        best_source_end_idx = None
+        for source_end_idx, source_clip in source_samples.items():
+            with torch.no_grad():
+                output = model(source_clip, target_clip)
+                score = torch.sigmoid(output).item()
+            if score > max_score:
+                max_score = score
+                best_source_end_idx = source_end_idx
 
-    # Detailed match information
-    print("\nDetailed Match Information:")
-    for match in split_matches:
-        pprint(match)
+        # Check if frame corresponds to a split
+        if max_score > args.threshold:
+            predicted_splits.append({
+                'target_end_idx': end_idx,
+                'confidence': max_score,
+                'source_end_idx': best_source_end_idx
+            })
+
+    # Sort splits by frame index
+    predicted_splits.sort(key=lambda x: x['target_end_idx'])
+
+    # Save predicted splits
+    with open(args.output_file, 'w') as f:
+        json.dump(predicted_splits, f, indent=4)
+    logging.info(f"Saved {len(predicted_splits)} predicted splits to {args.output_file}")
 
 if __name__ == "__main__":
     main()
