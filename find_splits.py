@@ -129,38 +129,45 @@ def main():
         logging.error("No source split clips generated")
         exit(1)
 
-    # Process target video frames
-    predicted_splits = []
+    # Collect candidate pairs (target_end_idx, source_end_idx, score) where score > threshold
+    candidates = []
     for end_idx in tqdm(candidate_end_indices, desc="Processing target frames"):
         indices = get_clip_indices_ending_at(end_idx, args.F)
         start_idx = indices[0]
         features = load_image_features_from_disk(args.trackId, args.targetRiderId, start_idx, end_idx, args.feature_base_path)
         if features.size == 0:
             continue
-        features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
+        # Pad features to match F
+        padded_features = pad_features_to_length(features, indices, args.F)
+        features_with_pos = np.concatenate([padded_features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
         target_clip = torch.from_numpy(features_with_pos).unsqueeze(0).to(args.device)
 
-        # Find maximum similarity to any source split
-        max_score = -1
-        best_source_end_idx = None
         for source_end_idx, source_clip in source_samples.items():
             with torch.no_grad():
                 output = model(source_clip, target_clip)
                 score = torch.sigmoid(output).item()
-            if score > max_score:
-                max_score = score
-                best_source_end_idx = source_end_idx
+            if score > args.threshold:
+                candidates.append((end_idx, source_end_idx, score))
 
-        # Check if frame corresponds to a split
-        if max_score > args.threshold:
+    # Sort candidates by score in descending order
+    candidates.sort(key=lambda x: x[2], reverse=True)
+
+    # Assign best matches ensuring one prediction per source split and target frame
+    assigned_target_indices = set()
+    assigned_source_indices = set()
+    predicted_splits = []
+    for target_end_idx, source_end_idx, score in candidates:
+        if target_end_idx not in assigned_target_indices and source_end_idx not in assigned_source_indices:
             predicted_splits.append({
-                'target_end_idx': end_idx,
-                'confidence': max_score,
-                'source_end_idx': best_source_end_idx
+                'target_end_idx': target_end_idx,
+                'confidence': score,
+                'source_end_idx': source_end_idx
             })
+            assigned_target_indices.add(target_end_idx)
+            assigned_source_indices.add(source_end_idx)
 
-    # Sort splits by frame index
-    predicted_splits.sort(key=lambda x: x['target_end_idx'])
+    # Sort splits by source_end_idx to maintain order
+    predicted_splits.sort(key=lambda x: x['source_end_idx'])
 
     # Save predicted splits
     with open(args.output_file, 'w') as f:

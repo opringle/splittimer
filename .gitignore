@@ -7,3 +7,4 @@ training_data_inspection/
 runs/
 artifacts/
 __pycache__/
+*.json
