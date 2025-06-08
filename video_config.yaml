@@ -1,4 +1,5 @@
 videos:
+  # Loudenvielle 2025
   - riderId: "amaury_pierron"
     trackId: "loudenvielle_2025"
     url: "https://www.youtube.com/watch?v=jUfJyZFpAoY&t=63s&ab_channel=GoProBike"
@@ -49,6 +50,7 @@ videos:
       - "02:39:08"
       - "03:02:21"
       - "03:21:12"
+  # Poland 2025
   - riderId: "max_alran"
     trackId: "poland_2025"
     url: "https://www.youtube.com/watch?v=2jhdCTKWw5g&ab_channel=GoProBike"
@@ -89,8 +91,70 @@ videos:
       - "01:57:20"
       - "02:40:19"
       - "03:05:13"
-
-    
-
-
-    
+  - riderId: "nina_hoffman"
+    trackId: "poland_2025"
+    url: "https://www.youtube.com/watch?v=PSAw-_daUO4&ab_channel=GoProBike"
+    splits:
+  # Leogang 2025
+  - riderId: "jackson_goldstone"
+    trackId: "leogang_2025"
+    url: "https://www.youtube.com/watch?v=rujzaUCp70A&ab_channel=GoProBike"
+    splits:
+  - riderId: "laurie_greenland"
+    trackId: "leogang_2025"
+    url: "https://www.youtube.com/watch?v=nw-Bx_ZZ0dE&ab_channel=GoProBike"
+    splits:
+  - riderId: "vali_holl"
+    trackId: "leogang_2025"
+    url: "https://www.youtube.com/watch?v=LG2clYbyhxs&ab_channel=GoProBike"
+    splits:
+  - riderId: "jordan_williams"
+    trackId: "leogang_2025"
+    url: "https://www.youtube.com/watch?v=Sut_6oBJrQU&ab_channel=GoProBike"
+    splits:
+  - riderId: "asa_vermette"
+    trackId: "leogang_2025"
+    url: "https://www.youtube.com/watch?v=65VYZWVdrTU&ab_channel=GoProBike"
+    splits:
+  # Mont Sainte Anne 2024
+  - riderId: "troy_brosnan"
+    trackId: "mont_sainte_anne_2024"
+    url: "https://www.youtube.com/watch?v=162sGhCWAyE&ab_channel=GoProBike"
+    splits:
+  - riderId: "max_alran"
+    trackId: "mont_sainte_anne_2024"
+    url: "https://www.youtube.com/watch?v=uqXWH5uIPHU&ab_channel=GoProBike"
+    splits:
+  - riderId: "loic_bruna"
+    trackId: "mont_sainte_anne_2024"
+    url: "https://www.youtube.com/watch?v=PVHPW0npwrU&t=16s&ab_channel=GoProBike"
+    splits:
+  - riderId: "lachlan_stevens_mcnab"
+    trackId: "mont_sainte_anne_2024"
+    url: "https://www.youtube.com/watch?v=MzY2NPYRbPU&ab_channel=GoProBike"
+    splits:
+  - riderId: "jackson_goldstone"
+    trackId: "mont_sainte_anne_2024"
+    url: "https://www.youtube.com/watch?v=xJuvF-O04qQ&ab_channel=WHOOPUCIMountainBikeWorldSeries"
+    splits:
+  # Val Di Sole 2024
+  - riderId: "amaury_pierron"
+    trackId: "val_di_sole_2024"
+    url: "https://www.youtube.com/watch?v=Tigbxbtw-VE&ab_channel=GoProBike"
+    splits:
+  - riderId: "loic_bruna"
+    trackId: "val_di_sole_2024"
+    url: "https://www.youtube.com/watch?v=weoP8SIQf4I&ab_channel=GoProBike"
+    splits:
+  - riderId: "myriam_nicole"
+    trackId: "val_di_sole_2024"
+    url: "https://www.youtube.com/watch?v=wxmaA02ymB4&ab_channel=GoProBike"
+    splits:
+  - riderId: "dakota_norton"
+    trackId: "val_di_sole_2024"
+    url: "https://www.youtube.com/watch?v=0_TDGoLdCqw&ab_channel=GoProBike"
+    splits:
+  - riderId: "loris_vergier"
+    trackId: "val_di_sole_2024"
+    url: "https://www.youtube.com/watch?v=l9fhFQYd6N8&ab_channel=GoProBike"
+    splits:
