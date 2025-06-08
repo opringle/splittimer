@@ -104,6 +104,7 @@ class PositionClassifier(nn.Module):
             'epoch': epoch,
             'model_state_dict': self.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
+            'model_type': 'position',
             'model_config': {
                 'input_size': self.input_size,
                 'hidden_size': self.hidden_size,
@@ -123,76 +124,198 @@ class PositionClassifier(nn.Module):
         model.load_state_dict(checkpoint['model_state_dict'])
         return model, checkpoint['epoch'], checkpoint['optimizer_state_dict']
 
+class SequencePositionClassifier(nn.Module):
+    def __init__(self, input_size, hidden_sizes, dropout=0.0):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_sizes = hidden_sizes
+        self.dropout = dropout
+        layers = []
+        in_size = 2 * input_size  # Concatenate two feature vectors
+        for size in hidden_sizes:
+            layers.append(nn.Linear(in_size, size))
+            layers.append(nn.ReLU())
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+            in_size = size
+        layers.append(nn.Linear(in_size, 1))
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, clip1, clip2):
+        # Input shapes: (B, 1, input_size)
+        clip1 = clip1.squeeze(1)  # (B, input_size)
+        clip2 = clip2.squeeze(1)  # (B, input_size)
+        combined = torch.cat((clip1, clip2), dim=1)  # (B, 2*input_size)
+        output = self.model(combined)  # (B, 1)
+        return output
+
+    def save(self, path, epoch, optimizer):
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': self.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'model_type': 'sequence',
+            'model_config': {
+                'input_size': self.input_size,
+                'hidden_sizes': self.hidden_sizes,
+                'dropout': self.dropout,
+            }
+        }
+        torch.save(checkpoint, path)
+
+    @classmethod
+    def load(cls, path, device):
+        checkpoint = torch.load(path, map_location=device)
+        model_config = checkpoint['model_config']
+        model = cls(**model_config).to(device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        return model, checkpoint['epoch'], checkpoint['optimizer_state_dict']
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def parse_clip_range(file_name):
-    match = re.match(r"(\d+)_to_(\d+)_resnet50\.npy", file_name)
-    if match:
-        return int(match.group(1)), int(match.group(2))
+def parse_clip_range(file_name, feature_type='individual', sequence_length=None):
+    """
+    Parse the frame range from a feature file name based on feature type.
+    
+    Args:
+        file_name (str): Name of the feature file
+        feature_type (str): 'individual' or 'sequence'
+        sequence_length (int, optional): Length of sequence for sequence features
+    
+    Returns:
+        tuple: (start_frame, end_frame) or None if parsing fails
+    """
+    if feature_type == 'individual':
+        match = re.match(r"(\d+)_to_(\d+)_resnet50\.npy", file_name)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    elif feature_type == 'sequence':
+        if sequence_length is None:
+            return None
+        match = re.match(r"(\d+)_to_(\d+)_iconv3d_F{}.npy".format(sequence_length), file_name)
+        if match:
+            return int(match.group(1)), int(match.group(2))
     return None
 
-def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, feature_base_path):
-    F = end_idx - start_idx + 1
-    if F <= 0:
-        logging.error(f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
-        return np.array([])
-
-    feature_base_dir = Path(feature_base_path) / track_id / rider_id
-    if not feature_base_dir.exists():
-        logging.error(f"Feature directory {feature_base_dir} does not exist")
-        return np.array([])
-
-    clip_ranges = []
-    for file_path in feature_base_dir.glob("*_resnet50.npy"):
-        range_info = parse_clip_range(file_path.name)
-        if range_info:
-            clip_ranges.append((range_info[0], range_info[1], file_path))
-        else:
-            logging.error(f"Skipping invalid file name: {file_path.name}")
-
-    if not clip_ranges:
-        logging.error(f"No valid feature files found in {feature_base_dir}")
-        return np.array([])
-
-    overlapping_clips = [
-        (clip_start, clip_end, file_path)
-        for clip_start, clip_end, file_path in clip_ranges
-        if clip_start <= end_idx and clip_end >= start_idx
-    ]
-
-    if not overlapping_clips:
-        logging.error(f"No clips overlap with range [{start_idx}, {end_idx}]")
-        return np.array([])
-
-    features = []
-    for clip_start, clip_end, file_path in overlapping_clips:
-        try:
-            clip_features = np.load(file_path)
-            if clip_features.shape[1] != 2048:
-                logging.error(f"Unexpected feature shape {clip_features.shape} in {file_path}")
-                return np.array([])
-        except Exception as e:
-            logging.error(f"Error loading features from {file_path}: {e}")
+def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, feature_base_path, feature_type='individual', sequence_length=None):
+    """
+    Load image features from disk for a given track and rider.
+    
+    Args:
+        track_id (str): Track identifier
+        rider_id (str): Rider identifier
+        start_idx (int): Starting frame index (for individual features)
+        end_idx (int): Ending frame index
+        feature_base_path (str): Base path to feature files
+        feature_type (str): 'individual' or 'sequence'
+        sequence_length (int, optional): Sequence length for sequence features
+    
+    Returns:
+        np.ndarray: Features array; shape (F, feature_dim) for individual, (1, feature_dim) for sequence
+    """
+    if feature_type == 'individual':
+        F = end_idx - start_idx + 1
+        if F <= 0:
+            logging.error(f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
             return np.array([])
 
-        extract_start = max(clip_start, start_idx)
-        extract_end = min(clip_end, end_idx)
-        rel_start = extract_start - clip_start
-        rel_end = extract_end - clip_start
-        if rel_start <= rel_end:
-            clip_features_subset = clip_features[rel_start:rel_end + 1]
-            features.append(clip_features_subset)
+        feature_base_dir = Path(feature_base_path) / track_id / rider_id
+        if not feature_base_dir.exists():
+            logging.error(f"Feature directory {feature_base_dir} does not exist")
+            return np.array([])
 
-    if not features:
-        logging.error(f"No features loaded for range [{start_idx}, {end_idx}]")
+        clip_ranges = []
+        for file_path in feature_base_dir.glob("*_resnet50.npy"):
+            range_info = parse_clip_range(file_path.name, feature_type='individual')
+            if range_info:
+                clip_ranges.append((range_info[0], range_info[1], file_path))
+            else:
+                logging.error(f"Skipping invalid file name: {file_path.name}")
+
+        if not clip_ranges:
+            logging.error(f"No valid individual feature files found in {feature_base_dir}")
+            return np.array([])
+
+        overlapping_clips = [
+            (clip_start, clip_end, file_path)
+            for clip_start, clip_end, file_path in clip_ranges
+            if clip_start <= end_idx and clip_end >= start_idx
+        ]
+
+        if not overlapping_clips:
+            logging.error(f"No individual clips overlap with range [{start_idx}, {end_idx}]")
+            return np.array([])
+
+        features = []
+        for clip_start, clip_end, file_path in overlapping_clips:
+            try:
+                clip_features = np.load(file_path)
+                if clip_features.shape[1] != 2048:
+                    logging.error(f"Unexpected individual feature shape {clip_features.shape} in {file_path}")
+                    return np.array([])
+            except Exception as e:
+                logging.error(f"Error loading individual features from {file_path}: {e}")
+                return np.array([])
+
+            extract_start = max(clip_start, start_idx)
+            extract_end = min(clip_end, end_idx)
+            rel_start = extract_start - clip_start
+            rel_end = extract_end - clip_start
+            if rel_start <= rel_end:
+                clip_features_subset = clip_features[rel_start:rel_end + 1]
+                features.append(clip_features_subset)
+
+        if not features:
+            logging.error(f"No individual features loaded for range [{start_idx}, {end_idx}]")
+            return np.array([])
+
+        features = np.concatenate(features, axis=0)
+        if features.shape[0] != F:
+            logging.error(f"Loaded {features.shape[0]} individual frames, expected {F}")
+            return np.array([])
+        return features
+
+    elif feature_type == 'sequence':
+        if sequence_length is None:
+            logging.error("sequence_length must be provided for sequence features")
+            return np.array([])
+
+        feature_base_dir = Path(feature_base_path) / track_id / rider_id
+        if not feature_base_dir.exists():
+            logging.error(f"Feature directory {feature_base_dir} does not exist")
+            return np.array([])
+
+        clip_ranges = []
+        for file_path in feature_base_dir.glob(f"*_iconv3d_F{sequence_length}.npy"):
+            range_info = parse_clip_range(file_path.name, feature_type='sequence', sequence_length=sequence_length)
+            if range_info:
+                clip_ranges.append((range_info[0], range_info[1], file_path))
+
+        if not clip_ranges:
+            logging.error(f"No valid sequence feature files found in {feature_base_dir} for F={sequence_length}")
+            return np.array([])
+
+        for clip_start, clip_end, file_path in clip_ranges:
+            if clip_start <= end_idx <= clip_end:
+                try:
+                    clip_features = np.load(file_path)
+                    rel_idx = end_idx - clip_start
+                    if rel_idx < 0 or rel_idx >= clip_features.shape[0]:
+                        logging.error(f"end_idx {end_idx} out of range for clip {clip_start} to {clip_end}")
+                        return np.array([])
+                    feature = clip_features[rel_idx]
+                    return feature[None, :]  # Shape (1, feature_dim)
+                except Exception as e:
+                    logging.error(f"Error loading sequence feature from {file_path}: {e}")
+                    return np.array([])
+
+        logging.error(f"No sequence feature file found for end_idx {end_idx}")
         return np.array([])
 
-    features = np.concatenate(features, axis=0)
-    if features.shape[0] != F:
-        logging.error(f"Loaded {features.shape[0]} frames, expected {F}")
+    else:
+        logging.error(f"Unknown feature_type: {feature_type}")
         return np.array([])
-    return features
 
 def get_clip_indices_ending_at(end_idx, F):
     start = max(0, end_idx - F + 1)

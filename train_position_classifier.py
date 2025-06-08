@@ -11,7 +11,7 @@ from tqdm import tqdm
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from utils import PositionClassifier, count_parameters, setup_logging
+from utils import PositionClassifier, SequencePositionClassifier, count_parameters, setup_logging
 
 class NPZDataset(Dataset):
     def __init__(self, file_list):
@@ -65,24 +65,42 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4) if val_dataset else None
 
-    model = PositionClassifier(
-        input_size=2049,
-        hidden_size=args.hidden_size,
-        bidirectional=args.bidirectional,
-        compress_sizes=compress_sizes,
-        post_lstm_sizes=post_lstm_sizes,
-        dropout=args.dropout
-    ).to(args.device)
+    # Determine input shape from one batch
+    clip1, clip2, _ = next(iter(train_loader))
+    B, F, input_size = clip1.shape
+
+    # Choose model based on sequence length
+    if F == 1:
+        # Sequence features: use a simpler model without LSTM
+        model = SequencePositionClassifier(input_size, post_lstm_sizes, dropout=args.dropout).to(args.device)
+    else:
+        # Individual frame features: use LSTM-based model
+        model = PositionClassifier(
+            input_size=input_size,
+            hidden_size=args.hidden_size,
+            bidirectional=args.bidirectional,
+            compress_sizes=compress_sizes,
+            post_lstm_sizes=post_lstm_sizes,
+            dropout=args.dropout
+        ).to(args.device)
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     start_epoch = 0
     if args.resume_from and os.path.isfile(args.resume_from):
-        model, start_epoch, optimizer_state = PositionClassifier.load(args.resume_from, args.device)
-        optimizer.load_state_dict(optimizer_state)
-        start_epoch += 1
-        logging.info(f"Resuming from epoch {start_epoch}")
+        checkpoint = torch.load(args.resume_from, map_location=args.device)
+        model_type = checkpoint['model_type']
+        if model_type == 'position':
+            model = PositionClassifier(**checkpoint['model_config']).to(args.device)
+        elif model_type == 'sequence':
+            model = SequencePositionClassifier(**checkpoint['model_config']).to(args.device)
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        logging.info(f"Resumed {model_type} model from epoch {start_epoch}")
 
     logging.info(f"Total trainable parameters: {count_parameters(model)}")
 
@@ -91,9 +109,9 @@ def main():
         total_loss = 0.0
         total_samples = 0
         for clip1, clip2, labels in tqdm(train_loader, desc=f'Epoch {epoch+1}/{args.num_epochs}'):
-            clip1 = clip1.to(args.device).flatten(start_dim=0, end_dim=1)
-            clip2 = clip2.to(args.device).flatten(start_dim=0, end_dim=1)
-            labels = labels.to(args.device).flatten(start_dim=0, end_dim=1)
+            clip1 = clip1.to(args.device)
+            clip2 = clip2.to(args.device)
+            labels = labels.to(args.device)
             optimizer.zero_grad()
             outputs = model(clip1, clip2)
             loss = criterion(outputs.squeeze(), labels)
@@ -113,9 +131,9 @@ def main():
                 all_preds, all_labels = [], []
                 with torch.no_grad():
                     for clip1, clip2, labels in val_loader:
-                        clip1 = clip1.to(args.device).flatten(start_dim=0, end_dim=1)
-                        clip2 = clip2.to(args.device).flatten(start_dim=0, end_dim=1)
-                        labels = labels.to(args.device).flatten(start_dim=0, end_dim=1)
+                        clip1 = clip1.to(args.device)
+                        clip2 = clip2.to(args.device)
+                        labels = labels.to(args.device)
                         outputs = model(clip1, clip2)
                         loss = criterion(outputs.squeeze(), labels)
                         val_loss += loss.item() * labels.size(0)
@@ -126,16 +144,13 @@ def main():
 
                 val_loss = val_loss / total_samples if total_samples > 0 else float('inf')
                 
-                # Compute classification report string and dictionary
-                if all_labels:  # Only generate report if there are labels
+                if all_labels:
                     report_str = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0)
                     report_dict = classification_report(all_labels, all_preds, labels=[0, 1], target_names=['Class 0', 'Class 1'], zero_division=0, output_dict=True)
 
-                    # Log to console
                     logging.info(f'Epoch {epoch+1}, Val Loss: {val_loss:.4f}')
                     logging.info(f'Classification Report:\n{report_str}')
 
-                    # Log to TensorBoard
                     writer.add_scalar('Loss/val', val_loss, epoch)
                     writer.add_scalar('Accuracy/val', report_dict['accuracy'], epoch)
                     for class_name in ['Class 0', 'Class 1']:
