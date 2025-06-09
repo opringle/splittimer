@@ -209,7 +209,7 @@ def main():
                         continue
                     output_clip_dir.mkdir(parents=True, exist_ok=True)
                     np.save(individual_feature_path, individual_features)
-                    logging.info(f"Saved individual features to {individual_feature_path} with shape {individual_features.shape}")
+                    logging.debug(f"Saved individual features to {individual_feature_path} with shape {individual_features.shape}")
 
                 # Extract sequence features for positions start_idx to end_idx
                 if args.feature_types in ['sequence', 'both']:
