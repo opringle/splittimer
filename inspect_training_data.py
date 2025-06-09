@@ -39,11 +39,15 @@ def main():
     # Sample N samples per sample_type and label
     sampled_df = df.groupby(['sample_type', 'label']).apply(lambda x: x.sample(min(len(x), args.num_samples)), include_groups=False).reset_index()
 
-    # Clean up and create temporary directory
+    # Clean up and create temporary directory with error handling
     temp_dir = Path("training_data_inspection")
-    if temp_dir.exists():
-        shutil.rmtree(temp_dir)
-        logging.info(f"Removed existing directory {temp_dir}")
+    try:
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+            logging.info(f"Removed existing directory {temp_dir}")
+    except Exception as e:
+        logging.error(f"Failed to remove existing directory {temp_dir}: {e}")
+        return
     temp_dir.mkdir(exist_ok=True)
     frames_dir = temp_dir / "frames"
     frames_dir.mkdir(exist_ok=True)

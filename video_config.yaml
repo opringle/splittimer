@@ -147,11 +147,11 @@ videos:
     url: "https://www.youtube.com/watch?v=zaf8OvA7X68&ab_channel=GoProBike"
     splits:
        - "00:02:02"
-       - "00:36:21"
-       - "01:28:10"
-       - "02:10:00"
-       - "02:51:01"
-       - "03:24:11"
+       - "00:36:02"
+       - "01:27:14"
+       - "02:09:04"
+       - "02:50:03"
+       - "03:23:12"
   # Mont Sainte Anne 2024
   - riderId: "troy_brosnan"
     trackId: "mont_sainte_anne_2024"

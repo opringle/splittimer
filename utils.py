@@ -27,7 +27,9 @@ def timecode_to_frames(timecode, fps):
     if len(parts) != 3:
         raise ValueError(f"Timecode must be in MM:SS:FF format, got '{timecode}'")
     MM, SS, FF = map(int, parts)
-    return (MM * 60 + SS) * int(fps) + FF
+    time_in_seconds = MM * 60 + SS + FF / 24.0  # Convert to seconds, based on 24 FPS annotation in devinci resolve
+    frame_index = int(time_in_seconds * fps)    # Frame index in the actual video
+    return frame_index
 
 def pad_features_to_length(features, indices, F):
     """

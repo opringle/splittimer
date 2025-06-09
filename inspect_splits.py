@@ -83,14 +83,15 @@ def main():
             html += f"<h3>Rider: {rider_id}</h3><div class='rider'>"
             
             for split_idx, split_timecode in enumerate(splits, 1):
+                
                 # Construct video path
                 video_path = Path("downloaded_videos") / track_id / rider_id / f"{track_id}_{rider_id}.mp4"
 
-                # Convert split time to frames
                 cap = cv2.VideoCapture(video_path)
                 if not cap.isOpened():
                     raise ValueError(f"Cannot open video {video_path}")
                 fps = cap.get(cv2.CAP_PROP_FPS)
+                cap.release()
                 frame_idx = timecode_to_frames(split_timecode, fps)    
                 
                 # Get frame or use placeholder

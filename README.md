@@ -1,9 +1,5 @@
 ## TODO
 
-- check positive label quality
-    - [x] loudenvielle_2025
-    - [ ] poland_2025
-- assert videos are 25.0 FPS and downsample if not when writing them
 - optionally ignore the first split when generating sample metadata
 - achieve validation F1 score on positive class > 0.95
 
@@ -36,23 +32,22 @@ Download youtube videos based on config file
 python youtube_download.py --config video_config.yaml
 ```
 
-Manually add splits in the config file. You can inspect annotations like this:
+Manually add splits in the config file using Davinci Resolve with 24.0 FPS. You can inspect annotations like this:
 
 ```bash
 python inspect_splits.py video_config.yaml && \
 open ./split_times_inspection/index.html
 ```
 
-Generate labels to train any model
+Generate positive and negative labels to train any model type
 
 ```bash
-python generate_training_samples.py --config video_config.yaml --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --log-level DEBUG
+python generate_training_samples.py --config video_config.yaml --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --log-level DEBUG
 ```
 
 Inspect the labels
 
 ```bash
-rm -rf ./training_data_inspection/ && \
 python inspect_training_data.py training_data/training_metadata.csv && \
 open ./training_data_inspection/index.html
 ```

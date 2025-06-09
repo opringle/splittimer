@@ -36,7 +36,8 @@ def get_video_metadata(video_path, splits, rider_id, track_id):
 
 def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
                              v2_indices, v2_labels, v2_rider_id, v2_track_id,
-                             max_negatives_per_positive=10, num_augmented_positives_per_segment=5):
+                             max_negatives_per_positive=10, num_augmented_positives_per_segment=5,
+                             ignore_first_split=False):
     assert v1_track_id == v2_track_id, "Track IDs must be the same for v1 and v2"
     v1_split_indices = v1_indices[v1_labels == 1.0]
     v2_split_indices = v2_indices[v2_labels == 1.0]
@@ -53,8 +54,12 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
     sample_indices = []
     sample_metadata = []
     
+    # Determine the starting split number based on ignore_first_split
+    start_split = 1 if ignore_first_split else 0
+    
     # Generate samples at split points (positive samples, type "split")
-    for split_number, v1_split_idx in enumerate(v1_split_indices):
+    for split_number in range(start_split, len(v1_split_indices)):
+        v1_split_idx = v1_split_indices[split_number]
         v2_split_idx = v2_split_indices[split_number]
         
         sample_labels.append(1.0)
@@ -160,10 +165,14 @@ def main():
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the logging level (default: INFO)"
     )
+    parser.add_argument("--ignore_first_split", action='store_true', help="Ignore the first split when generating training data")
     args = parser.parse_args()
     
     log_level = getattr(logging, args.log_level.upper())
     logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
+    
+    if args.ignore_first_split:
+        logging.info("Ignoring the first split for generating positive samples at split points")
     
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
@@ -212,7 +221,8 @@ def main():
                 v1_indices, v1_labels, v1_rider_id, v1_track_id,
                 v2_indices, v2_labels, v2_rider_id, v2_track_id,
                 max_negatives_per_positive=args.max_negatives_per_positive,
-                num_augmented_positives_per_segment=args.num_augmented_positives_per_segment
+                num_augmented_positives_per_segment=args.num_augmented_positives_per_segment,
+                ignore_first_split=args.ignore_first_split
             )
             
             data = {
