@@ -10,7 +10,7 @@ from tqdm import tqdm
 import cv2
 import math
 
-from utils import get_default_device_name, get_video_fps_and_total_frames, video_path_to_numpy_array
+from utils import get_default_device_name, get_video_fps_and_total_frames
 
 class R3D18FeatureExtractor(nn.Module):
     """Feature extractor for R3D-18 model, removing the final classification layer."""
