@@ -1,6 +1,13 @@
 ## TODO
 
-- optionally ignore the first split when generating sample metadata
+- speed up feature extraction
+
+current logic: 
+- loop through each video
+- loop through each clip appending individual frames to buffer
+- preprocess batch of frames
+-  
+
 - achieve validation F1 score on positive class > 0.95
 
 ## Prerequisites
@@ -67,7 +74,11 @@ python extract_clip_features.py downloaded_videos video_features --feature-extra
 Preprocess videos into training samples and save to disk
 
 ```bash
-rm -rf ./training_data/train && rm -rf ./training_data/val && \
+rm -rf ./training_data/train && rm -rf ./training_data/val
+```
+
+
+```bash
 python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --batch_size=32 --log-level DEBUG --feature_type individual
 ```
 

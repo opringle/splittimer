@@ -10,7 +10,7 @@ from tqdm import tqdm
 import cv2
 import math
 
-from utils import get_default_device_name, get_video_fps_and_total_frames
+from utils import get_default_device_name, get_video_fps_and_total_frames, video_path_to_numpy_array
 
 class R3D18FeatureExtractor(nn.Module):
     """Feature extractor for R3D-18 model, removing the final classification layer."""
@@ -30,6 +30,7 @@ class R3D18FeatureExtractor(nn.Module):
 
 def extract_individual_features(preprocessed_frames, model, device, batch_size=32):
     """Extract ResNet50 features for a batch of preprocessed frames."""
+    logging.debug(f"Computing resnet features...")
     model.eval()
     all_features = []
 
@@ -97,7 +98,7 @@ def main():
     parser.add_argument("--feature-extraction-batch-size", type=int, default=16, help="Batch size for feature extraction")
     parser.add_argument("--clip-length", type=int, default=50, help="Length of each clip for batching features")
     parser.add_argument("--sequence-length", type=int, default=10, help="Number of frames in each sequence for 3D CNN features")
-    parser.add_argument("--feature-types", type=str, choices=['individual', 'sequence', 'both'], default='both', help="Types of features to extract")
+    parser.add_argument("--feature-types", type=str, choices=['individual', 'sequence', 'both'], default='individual', help="Types of features to extract")
     parser.add_argument('--device', type=str, default=get_default_device_name(), help='Device to use (cuda or cpu)')
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Set the logging level")
     args = parser.parse_args()
@@ -119,37 +120,37 @@ def main():
 
     # Get list of video files recursively
     videos_dir = Path(args.videos_dir)
-    clip_files = sorted(videos_dir.rglob("*.mp4"))
-    if not clip_files:
+    gopro_videos = sorted(videos_dir.rglob("*.mp4"))
+    if not gopro_videos:
         logging.error(f"No video files (*.mp4) found in {videos_dir} or its subdirectories")
         return
 
-    logging.info(f"Found {len(clip_files)} video files in {videos_dir}")
+    logging.info(f"Found {len(gopro_videos)} video files in {videos_dir}")
 
     # Calculate total number of clips for progress bar
     total_clips = 0
-    for clip_file in clip_files:
-        _, total_frames = get_video_fps_and_total_frames(str(clip_file))
+    for gopro_video in gopro_videos:
+        _, total_frames = get_video_fps_and_total_frames(str(gopro_video))
         total_clips += math.ceil(total_frames / args.clip_length)
 
     output_dir = Path(args.output_dir)
 
     # Process clips with a single progress bar
     with tqdm(total=total_clips, desc="Processing clips") as pbar:
-        for clip_file in clip_files:
+        for gopro_video in gopro_videos:
             # Extract trackId and riderId from path
-            parts = clip_file.parts
+            parts = gopro_video.parts
             if len(parts) < 3:
-                logging.error(f"Invalid path structure for {clip_file}, skipping")
+                logging.error(f"Invalid path structure for {gopro_video}, skipping")
                 pbar.update(math.ceil(total_frames / args.clip_length))
                 continue
             rider_id = parts[-2]
             track_id = parts[-3]
 
             # Load the video
-            cap = cv2.VideoCapture(str(clip_file))
-            _, total_frames = get_video_fps_and_total_frames(str(clip_file))
-            logging.debug(f"Video {clip_file} has {total_frames} frames")
+            cap = cv2.VideoCapture(str(gopro_video))
+            _, total_frames = get_video_fps_and_total_frames(str(gopro_video))
+            logging.debug(f"Video {gopro_video} has {total_frames} frames")
 
             # Process frames in clips of length C
             clip_length = args.clip_length
@@ -182,17 +183,22 @@ def main():
                 # Read frames from start_clip to end_idx
                 frames = []
                 frame_indices = list(range(start_clip, end_idx + 1))
-                for idx in frame_indices:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                logging.debug(f"Constructing clip buffer from {len(frame_indices)} frame indices...")
+                num_frames_to_read = end_idx - start_clip + 1
+                cap.set(cv2.CAP_PROP_POS_FRAMES, start_clip)
+                for i in range(num_frames_to_read):
                     ret, frame = cap.read()
                     if ret:
                         frames.append(frame)
                     else:
-                        logging.warning(f"Cannot read frame {idx} from {clip_file}, padding with zeros")
+                        logging.warning(f"Cannot read frame {start_clip + i} from {gopro_video}, padding with zeros")
                         frames.append(np.zeros((224, 224, 3), dtype=np.uint8))
+                logging.debug(f"Done")
 
                 # Preprocess frames
+                logging.debug(f"Preprocessing {len(frames)} frames.")
                 preprocessed_frames = [preprocess_frame(frame) for frame in frames]
+                logging.debug(f"Done.")
 
                 # Extract individual features for frames start_idx to end_idx
                 if args.feature_types in ['individual', 'both']:
