@@ -26,9 +26,10 @@ def get_frame(video_path, frame_idx):
         raise ValueError(f"Cannot read frame {frame_idx} from {video_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Inspect training data by generating an HTML page with random positive and negative samples.")
+    parser = argparse.ArgumentParser(description="Inspect training data by generating an HTML page with random samples per label and type.")
     parser.add_argument("csv_path", type=str, help="Path to the training data CSV")
-    parser.add_argument("--num_samples", type=int, default=3, help="Number of positive and negative samples to display")
+    parser.add_argument("--num_samples", type=int, default=3, help="Number of samples to display per label and type")
+    parser.add_argument("--sample_types", type=str, nargs='*', help="Optional list of sample types to include (e.g., type1 type2)")
     args = parser.parse_args()
 
     # Set up logging
@@ -42,21 +43,15 @@ def main():
         logging.error("CSV file does not contain 'sample_type' column")
         return
 
-    # Filter positive and negative samples
-    df_pos = df[df['label'] == 1.0]
-    df_neg = df[df['label'] == 0.0]
+    # Filter by sample_types if provided
+    if args.sample_types:
+        df = df[df['sample_type'].isin(args.sample_types)]
+        if df.empty:
+            logging.error(f"No samples found for specified sample types: {args.sample_types}")
+            return
 
-    # Determine the number of samples to display
-    num_pos = min(args.num_samples, len(df_pos))
-    num_neg = min(args.num_samples, len(df_neg))
-
-    # Sample random positive and negative samples
-    pos_samples = df_pos.sample(n=num_pos)
-    neg_samples = df_neg.sample(n=num_neg)
-
-    # Combine samples
-    samples = list(pos_samples.itertuples()) + list(neg_samples.itertuples())
-    labels = ['Positive'] * num_pos + ['Negative'] * num_neg
+    # Sample N samples per sample_type and label
+    sampled_df = df.groupby(['sample_type', 'label']).apply(lambda x: x.sample(min(len(x), args.num_samples)), include_groups=False).reset_index()
 
     # Clean up and create temporary directory
     temp_dir = Path("training_data_inspection")
@@ -85,45 +80,53 @@ def main():
     placeholder = np.zeros((224, 224, 3), dtype=np.uint8)
     placeholder[:, :, 0] = 255  # Red square
 
-    for i, (row, label_type) in enumerate(zip(samples, labels)):
-        track_id = row.track_id
-        v1_rider_id = row.v1_rider_id
-        v2_rider_id = row.v2_rider_id
-        v1_frame_idx = row.v1_frame_idx
-        v2_frame_idx = row.v2_frame_idx
-        sample_type = row.sample_type
+    # Initialize sample index
+    sample_idx = 0
 
-        # Construct video paths
-        v1_path = Path("downloaded_videos") / track_id / v1_rider_id / f"{track_id}_{v1_rider_id}.mp4"
-        v2_path = Path("downloaded_videos") / track_id / v2_rider_id / f"{track_id}_{v2_rider_id}.mp4"
+    # Group by sample_type and label for display
+    for (sample_type, label), group in sampled_df.groupby(['sample_type', 'label']):
+        label_str = 'Positive' if label == 1.0 else 'Negative'
+        html += f"<h2>Sample Type: {sample_type}, Label: {label_str}</h2>"
+        for row in group.itertuples():
+            track_id = row.track_id
+            v1_rider_id = row.v1_rider_id
+            v2_rider_id = row.v2_rider_id
+            v1_frame_idx = row.v1_frame_idx
+            v2_frame_idx = row.v2_frame_idx
+            sample_type = row.sample_type
 
-        # Get frames or use placeholder
-        try:
-            frame1 = get_frame(v1_path, v1_frame_idx)
-        except ValueError as e:
-            logging.warning(f"Could not load frame for {v1_rider_id} frame {v1_frame_idx}: {e}")
-            frame1 = placeholder
+            # Construct video paths
+            v1_path = Path("downloaded_videos") / track_id / v1_rider_id / f"{track_id}_{v1_rider_id}.mp4"
+            v2_path = Path("downloaded_videos") / track_id / v2_rider_id / f"{track_id}_{v2_rider_id}.mp4"
 
-        try:
-            frame2 = get_frame(v2_path, v2_frame_idx)
-        except ValueError as e:
-            logging.warning(f"Could not load frame for {v2_rider_id} frame {v2_frame_idx}: {e}")
-            frame2 = placeholder
+            # Get frames or use placeholder
+            try:
+                frame1 = get_frame(v1_path, v1_frame_idx)
+            except ValueError as e:
+                logging.warning(f"Could not load frame for {v1_rider_id} frame {v1_frame_idx}: {e}")
+                frame1 = placeholder
 
-        # Save frames
-        frame1_path = frames_dir / f"sample_{i}_v1.png"
-        frame2_path = frames_dir / f"sample_{i}_v2.png"
-        plt.imsave(frame1_path, frame1)
-        plt.imsave(frame2_path, frame2)
+            try:
+                frame2 = get_frame(v2_path, v2_frame_idx)
+            except ValueError as e:
+                logging.warning(f"Could not load frame for {v2_rider_id} frame {v2_frame_idx}: {e}")
+                frame2 = placeholder
 
-        # Add to HTML with sample_type
-        html += f"""
-        <div class="sample">
-        <h3>{label_type} sample (Type: {sample_type}): {v1_rider_id} frame {v1_frame_idx} and {v2_rider_id} frame {v2_frame_idx}</h3>
-        <img src="frames/sample_{i}_v1.png">
-        <img src="frames/sample_{i}_v2.png">
-        </div>
-        """
+            # Save frames
+            frame1_path = frames_dir / f"sample_{sample_idx}_v1.png"
+            frame2_path = frames_dir / f"sample_{sample_idx}_v2.png"
+            plt.imsave(frame1_path, frame1)
+            plt.imsave(frame2_path, frame2)
+
+            # Add to HTML with track_id and sample_type
+            html += f"""
+            <div class="sample">
+            <h3>Track ID: {track_id}, Sample Type: {sample_type}, {v1_rider_id} frame {v1_frame_idx} and {v2_rider_id} frame {v2_frame_idx}</h3>
+            <img src="frames/sample_{sample_idx}_v1.png">
+            <img src="frames/sample_{sample_idx}_v2.png">
+            </div>
+            """
+            sample_idx += 1
 
     # Close HTML
     html += """

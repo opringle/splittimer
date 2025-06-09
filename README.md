@@ -1,6 +1,10 @@
 ## TODO
 
-- label 25 videos from 5 tracks
+- check positive label quality
+    - [x] loudenvielle_2025
+    - [ ] poland_2025
+
+- optionally ignore the first split when generating sample metadata
 - achieve validation F1 score on positive class > 0.95
 
 ## Prerequisites
@@ -41,13 +45,15 @@ python generate_training_samples.py --config video_config.yaml --max_negatives_p
 Inspect the labels
 
 ```bash
-python inspect_training_data.py training_data/training_metadata.csv --num_samples 10 && open ./training_data_inspection/index.html
+rm -rf ./training_data_inspection/ && \
+python inspect_training_data.py training_data/training_metadata.csv && \
+open ./training_data_inspection/index.html
 ```
 
 Compute features for each frame index and save to disk
 
 ```bash
-python extract_clip_features.py downloaded_videos video_features --feature-extraction-batch-size=5 --clip-length=50  --feature-types individual --log-level DEBUG
+python extract_clip_features.py downloaded_videos video_features --feature-extraction-batch-size=5 --clip-length=50 --feature-types individual --log-level DEBUG
 ```
 
 Or compute sequence features leading up to each frame index and save to disk
