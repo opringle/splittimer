@@ -9,21 +9,7 @@ import logging
 import numpy as np
 import shutil
 
-def get_frame(video_path, frame_idx):
-    """
-    Extract a specific frame from the video file.
-    """
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise ValueError(f"Cannot open video {video_path}")
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-    ret, frame = cap.read()
-    cap.release()
-    if ret:
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return frame_rgb
-    else:
-        raise ValueError(f"Cannot read frame {frame_idx} from {video_path}")
+from utils import get_frame
 
 def main():
     parser = argparse.ArgumentParser(description="Inspect training data by generating an HTML page with random samples per label and type.")

@@ -1,9 +1,33 @@
+import cv2
 import torch
 import torch.nn as nn
 import numpy as np
 import logging
 from pathlib import Path
 import re
+
+def get_frame(video_path, frame_idx):
+    """
+    Extract a specific frame from the video file.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video {video_path}")
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    ret, frame = cap.read()
+    cap.release()
+    if ret:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return frame_rgb
+    else:
+        raise ValueError(f"Cannot read frame {frame_idx} from {video_path}")
+
+def timecode_to_frames(timecode, fps):
+    parts = timecode.split(':')
+    if len(parts) != 3:
+        raise ValueError(f"Timecode must be in MM:SS:FF format, got '{timecode}'")
+    MM, SS, FF = map(int, parts)
+    return (MM * 60 + SS) * int(fps) + FF
 
 def pad_features_to_length(features, indices, F):
     """

@@ -10,12 +10,7 @@ import cv2
 import yaml
 from collections import defaultdict
 
-def timecode_to_frames(timecode, fps):
-    parts = timecode.split(':')
-    if len(parts) != 3:
-        raise ValueError(f"Timecode must be in MM:SS:FF format, got '{timecode}'")
-    MM, SS, FF = map(int, parts)
-    return (MM * 60 + SS) * int(fps) + FF
+from utils import timecode_to_frames
 
 def get_video_metadata(video_path, splits, rider_id, track_id):
     cap = cv2.VideoCapture(video_path)

@@ -2,6 +2,7 @@ processed_clips/
 downloaded_videos/
 training_data/
 .DS_Store
+split_times_inspection/
 training_data_inspection/
 *.npy
 runs/

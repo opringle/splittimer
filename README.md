@@ -3,7 +3,7 @@
 - check positive label quality
     - [x] loudenvielle_2025
     - [ ] poland_2025
-
+- assert videos are 25.0 FPS and downsample if not when writing them
 - optionally ignore the first split when generating sample metadata
 - achieve validation F1 score on positive class > 0.95
 
@@ -34,6 +34,13 @@ Download youtube videos based on config file
 
 ```bash
 python youtube_download.py --config video_config.yaml
+```
+
+Manually add splits in the config file. You can inspect annotations like this:
+
+```bash
+python inspect_splits.py video_config.yaml && \
+open ./split_times_inspection/index.html
 ```
 
 Generate labels to train any model
