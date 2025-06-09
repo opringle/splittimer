@@ -5,6 +5,8 @@ import numpy as np
 from pathlib import Path
 import logging
 
+from utils import get_frame
+
 logging.basicConfig(level=logging.INFO)
 
 def parse_args():
@@ -21,19 +23,6 @@ def load_predictions(json_path):
 
 def get_video_path(trackId, riderId):
     return f"downloaded_videos/{trackId}/{riderId}/{trackId}_{riderId}.mp4"
-
-def extract_frame(video_path, frame_idx):
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logging.error(f"Cannot open video file {video_path}")
-        return None
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-    ret, frame = cap.read()
-    cap.release()
-    if not ret:
-        logging.error(f"Cannot read frame {frame_idx} from {video_path}")
-        return None
-    return frame
 
 def add_label(frame, text):
     height, width = frame.shape[:2]
@@ -63,8 +52,8 @@ def main():
     
     # Process each prediction
     for i, pred in enumerate(predictions):
-        source_frame = extract_frame(source_video_path, pred['source_end_idx'])
-        target_frame = extract_frame(target_video_path, pred['target_end_idx'])
+        source_frame = get_frame(source_video_path, pred['source_end_idx'])
+        target_frame = get_frame(target_video_path, pred['target_end_idx'])
         if source_frame is not None and target_frame is not None:
             labeled_source = add_label(source_frame, f"Source Split {i+1}: frame {pred['source_end_idx']}")
             labeled_target = add_label(target_frame, f"Target Prediction {i+1}: frame {pred['target_end_idx']}")

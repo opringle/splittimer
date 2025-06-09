@@ -6,7 +6,7 @@ import logging
 import json
 from tqdm import tqdm
 import yaml
-from utils import PositionClassifier, pad_features_to_length, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range
+from utils import PositionClassifier, get_video_fps_and_total_frames, pad_features_to_length, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
 
 def parse_timestamp(timestamp):
     """Parse a timestamp in MM:SS:FF format into minutes, seconds, and frames."""
@@ -17,12 +17,6 @@ def parse_timestamp(timestamp):
     seconds = int(parts[1])
     frames = int(parts[2])
     return minutes, seconds, frames
-
-def timestamp_to_frame(timestamp, frame_rate):
-    """Convert a timestamp in MM:SS:FF format to a frame index."""
-    minutes, seconds, frames = parse_timestamp(timestamp)
-    total_frames = (minutes * 60 + seconds) * frame_rate + frames
-    return int(total_frames)
 
 def load_source_splits(config_path, track_id, source_rider_id):
     """
@@ -95,7 +89,9 @@ def main():
     logging.info(f"Loaded {len(source_timestamps)} source splits from {args.config_path} for track {args.trackId} and rider {args.sourceRiderId}")
 
     # Convert timestamps to frame indices
-    source_end_indices = [timestamp_to_frame(ts, args.frame_rate) for ts in source_timestamps]
+    source_video_path = Path(source_video_dir) / f"{args.trackId}_{args.sourceRiderId}.mp4"
+    source_fps, _ = get_video_fps_and_total_frames(source_video_path)
+    source_end_indices = [timecode_to_frames(ts, source_fps) for ts in source_timestamps]
 
     # Determine total frames in target video
     target_npy_files = list(target_video_dir.glob("*.npy"))

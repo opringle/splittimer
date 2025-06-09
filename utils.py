@@ -6,6 +6,15 @@ import logging
 from pathlib import Path
 import re
 
+def get_video_fps_and_total_frames(video_path):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video {video_path}")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return fps, total_frames
+
 def get_frame(video_path, frame_idx):
     """
     Extract a specific frame from the video file.
@@ -346,8 +355,10 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
 def get_clip_indices_ending_at(end_idx, F):
     start = max(0, end_idx - F + 1)
     clip_indices = list(range(start, end_idx + 1))
-    if len(clip_indices) < F:
-        clip_indices += [clip_indices[-1]] * (F - len(clip_indices))
+    assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"
+    # if len(clip_indices) < F:
+    #     print
+    #     clip_indices += [clip_indices[-1]] * (F - len(clip_indices))
     return clip_indices[:F]
 
 def save_batch(save_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):

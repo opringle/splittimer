@@ -10,7 +10,7 @@ import numpy as np
 import shutil
 from datetime import datetime
 
-from utils import get_frame, timecode_to_frames
+from utils import get_frame, get_video_fps_and_total_frames, timecode_to_frames
 
 def main():
     parser = argparse.ArgumentParser(description="Inspect split times by generating an HTML page with frames for each track and rider.")
@@ -86,12 +86,7 @@ def main():
                 
                 # Construct video path
                 video_path = Path("downloaded_videos") / track_id / rider_id / f"{track_id}_{rider_id}.mp4"
-
-                cap = cv2.VideoCapture(video_path)
-                if not cap.isOpened():
-                    raise ValueError(f"Cannot open video {video_path}")
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                cap.release()
+                fps, _ = get_video_fps_and_total_frames(video_path)
                 frame_idx = timecode_to_frames(split_timecode, fps)    
                 
                 # Get frame or use placeholder

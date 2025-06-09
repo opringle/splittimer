@@ -10,16 +10,10 @@ import cv2
 import yaml
 from collections import defaultdict
 
-from utils import timecode_to_frames
+from utils import get_video_fps_and_total_frames, timecode_to_frames
 
 def get_video_metadata(video_path, splits, rider_id, track_id):
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise ValueError(f"Cannot open video {video_path}")
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
-    logging.debug(f"video has {total_frames} frames at {fps} fps")
+    fps, total_frames = get_video_fps_and_total_frames(video_path)
     
     split_indices_raw = [timecode_to_frames(tc, fps) for tc in splits]
     split_indices = []

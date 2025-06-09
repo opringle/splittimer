@@ -10,6 +10,8 @@ from tqdm import tqdm
 import cv2
 import math
 
+from utils import get_video_fps_and_total_frames
+
 class R3D18FeatureExtractor(nn.Module):
     """Feature extractor for R3D-18 model, removing the final classification layer."""
     def __init__(self, model):
@@ -126,11 +128,7 @@ def main():
     # Calculate total number of clips for progress bar
     total_clips = 0
     for clip_file in clip_files:
-        cap = cv2.VideoCapture(str(clip_file))
-        if not cap.isOpened():
-            continue
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        cap.release()
+        _, total_frames = get_video_fps_and_total_frames(str(clip_file))
         total_clips += math.ceil(total_frames / args.clip_length)
 
     output_dir = Path(args.output_dir)
@@ -149,11 +147,7 @@ def main():
 
             # Load the video
             cap = cv2.VideoCapture(str(clip_file))
-            if not cap.isOpened():
-                logging.error(f"Cannot open video {clip_file}, skipping")
-                pbar.update(math.ceil(total_frames / args.clip_length))
-                continue
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            _, total_frames = get_video_fps_and_total_frames(str(clip_file))
             logging.debug(f"Video {clip_file} has {total_frames} frames")
 
             # Process frames in clips of length C

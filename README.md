@@ -68,9 +68,6 @@ Preprocess videos into training samples and save to disk
 
 ```bash
 rm -rf ./training_data/train && rm -rf ./training_data/val && \
-```
-
-```bash
 python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --batch_size=32 --log-level DEBUG --feature_type individual
 ```
 
@@ -85,7 +82,7 @@ python train_position_classifier.py training_data --bidirectional --compress_siz
 ```
 
 ```bash
-TODO
+TODO train on I3D features instead of sequence of resnet features
 ```
 
 Find splits in a target video using the model
