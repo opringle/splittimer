@@ -6,6 +6,9 @@ import logging
 from pathlib import Path
 import re
 
+def get_default_device_name():
+    return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+
 def get_video_fps_and_total_frames(video_path):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():

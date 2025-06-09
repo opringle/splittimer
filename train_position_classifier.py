@@ -11,7 +11,7 @@ from tqdm import tqdm
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from utils import PositionClassifier, SequencePositionClassifier, count_parameters, setup_logging
+from utils import PositionClassifier, SequencePositionClassifier, count_parameters, get_default_device_name, setup_logging
 
 class NPZDataset(Dataset):
     def __init__(self, file_list):
@@ -30,7 +30,7 @@ class NPZDataset(Dataset):
 def main():
     parser = argparse.ArgumentParser(description="Train a position classifier on preprocessed video clip data.")
     parser.add_argument('data_dir', type=str)
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
+    parser.add_argument('--device', type=str, default=get_default_device_name(), help='Device to use (cuda or cpu)')
     parser.add_argument('--num_epochs', type=int, default=1500)
     parser.add_argument('--learning_rate', type=float, default=0.0001)
     parser.add_argument('--bidirectional', action='store_true')

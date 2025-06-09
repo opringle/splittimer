@@ -6,7 +6,7 @@ import logging
 import json
 from tqdm import tqdm
 import yaml
-from utils import PositionClassifier, get_video_fps_and_total_frames, pad_features_to_length, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
+from utils import PositionClassifier, get_default_device_name, get_video_fps_and_total_frames, pad_features_to_length, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
 
 def parse_timestamp(timestamp):
     """Parse a timestamp in MM:SS:FF format into minutes, seconds, and frames."""
@@ -65,7 +65,7 @@ def main():
     parser.add_argument('--sourceRiderId', type=str, required=True, help='Source rider identifier')
     parser.add_argument('--targetRiderId', type=str, required=True, help='Target rider identifier')
     parser.add_argument('--checkpoint_path', type=str, required=True, help='Path to the model checkpoint file')
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use (cuda or cpu)')
+    parser.add_argument('--device', type=str, default=get_default_device_name(), help='Device to use (cuda or cpu)')
     parser.add_argument('--output_file', type=str, default='predicted_splits.json', help='Output JSON file for predicted splits')
     parser.add_argument('--F', type=int, default=50, help='Number of frames per clip')
     parser.add_argument('--frame_rate', type=float, required=True, help='Frame rate of the videos (frames per second)')

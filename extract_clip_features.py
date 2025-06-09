@@ -10,7 +10,7 @@ from tqdm import tqdm
 import cv2
 import math
 
-from utils import get_video_fps_and_total_frames
+from utils import get_default_device_name, get_video_fps_and_total_frames
 
 class R3D18FeatureExtractor(nn.Module):
     """Feature extractor for R3D-18 model, removing the final classification layer."""
@@ -98,6 +98,7 @@ def main():
     parser.add_argument("--clip-length", type=int, default=50, help="Length of each clip for batching features")
     parser.add_argument("--sequence-length", type=int, default=10, help="Number of frames in each sequence for 3D CNN features")
     parser.add_argument("--feature-types", type=str, choices=['individual', 'sequence', 'both'], default='both', help="Types of features to extract")
+    parser.add_argument('--device', type=str, default=get_default_device_name(), help='Device to use (cuda or cpu)')
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Set the logging level")
     args = parser.parse_args()
 
@@ -105,7 +106,7 @@ def main():
     logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s')
 
     # Initialize models
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device)
     if args.feature_types in ['individual', 'both']:
         individual_model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         individual_model = nn.Sequential(*list(individual_model.children())[:-1])  # Remove final classification layer
