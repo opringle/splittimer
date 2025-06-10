@@ -42,7 +42,7 @@ open ./split_times_inspection/index.html
 Generate positive and negative labels to train any model type
 
 ```bash
-python generate_training_samples.py --config video_config.yaml --clip-length 50 --beta=10 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50
+python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50
 ```
 
 Inspect the labels
@@ -72,7 +72,7 @@ rm -rf ./training_data/train && rm -rf ./training_data/val
 
 
 ```bash
-python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --batch_size=32 --log-level DEBUG --feature_type individual
+python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --batch_size=32 --feature_type individual --log-level DEBUG
 ```
 
 ```bash
