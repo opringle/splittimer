@@ -44,31 +44,6 @@ def timecode_to_frames(timecode, fps):
     frame_index = int(time_in_seconds * fps)    # Frame index in the actual video
     return frame_index
 
-def pad_features_to_length(features, indices, F):
-    """
-    Pad or truncate the features array to ensure it has exactly F frames.
-    
-    Args:
-        features (np.ndarray): Feature array of shape (num_frames, feature_dim)
-        indices (list or np.ndarray): List of frame indices, length F
-        F (int): Desired number of frames
-    
-    Returns:
-        np.ndarray: Padded or truncated features array of shape (F, feature_dim)
-    """
-    num_frames = features.shape[0]
-    feature_dim = features.shape[1]
-    
-    if num_frames == F:
-        return features
-    elif num_frames < F:
-        # Pad by repeating the last frame's features
-        padding = np.tile(features[-1:], (F - num_frames, 1))
-        return np.vstack((features, padding))
-    else:
-        # Truncate to F frames if too long
-        return features[:F]
-    
 def setup_logging(log_level="INFO"):
     logging.basicConfig(level=getattr(logging, log_level.upper()), format='%(levelname)s: %(message)s')
 

@@ -6,7 +6,7 @@ import logging
 import json
 from tqdm import tqdm
 import yaml
-from utils import PositionClassifier, get_default_device_name, get_video_fps_and_total_frames, pad_features_to_length, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
+from utils import PositionClassifier, get_default_device_name, get_video_fps_and_total_frames, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
 
 def parse_timestamp(timestamp):
     """Parse a timestamp in MM:SS:FF format into minutes, seconds, and frames."""
@@ -112,12 +112,9 @@ def main():
         indices = get_clip_indices_ending_at(source_end_idx, args.F)
         start_idx = indices[0]
         features = load_image_features_from_disk(args.trackId, args.sourceRiderId, start_idx, source_end_idx, args.feature_base_path)
-        if features.size == 0:
-            logging.warning(f"Failed to load features for source split at {source_end_idx}")
-            continue
+        assert features.size > 0, f"Failed to load features for source split at {source_end_idx}"
         # Pad features to match F
-        padded_features = pad_features_to_length(features, indices, args.F)
-        features_with_pos = np.concatenate([padded_features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
+        features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
         source_samples[source_end_idx] = torch.from_numpy(features_with_pos).unsqueeze(0).to(args.device)
     logging.info(f"Generated {len(source_samples)} source split clips")
 
@@ -131,11 +128,9 @@ def main():
         indices = get_clip_indices_ending_at(end_idx, args.F)
         start_idx = indices[0]
         features = load_image_features_from_disk(args.trackId, args.targetRiderId, start_idx, end_idx, args.feature_base_path)
-        if features.size == 0:
-            continue
+        assert features.size > 0, f"Failed to load features for source split at {end_idx}"
         # Pad features to match F
-        padded_features = pad_features_to_length(features, indices, args.F)
-        features_with_pos = np.concatenate([padded_features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
+        features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
         target_clip = torch.from_numpy(features_with_pos).unsqueeze(0).to(args.device)
 
         for source_end_idx, source_clip in source_samples.items():

@@ -1,7 +1,5 @@
 ## TODO
 
-- never select a sample index
-- intelligently handle case where `assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"` instead of just repeating final frame
 - achieve perfect validation score??? Seems an easy task. This should be pos
 - update preview labels to look at 2 video clips and a label
 
