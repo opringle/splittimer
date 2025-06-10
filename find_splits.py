@@ -6,7 +6,7 @@ import logging
 import json
 from tqdm import tqdm
 import yaml
-from utils import PositionClassifier, get_default_device_name, get_video_fps_and_total_frames, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
+from utils import PositionClassifier, frame_idx_to_timecode, get_default_device_name, get_video_fps_and_total_frames, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
 
 def parse_timestamp(timestamp):
     """Parse a timestamp in MM:SS:FF format into minutes, seconds, and frames."""
@@ -59,8 +59,8 @@ def load_source_splits(config_path, track_id, source_rider_id):
 
 def main():
     parser = argparse.ArgumentParser(description="Find corresponding splits in target video based on source video splits.")
-    parser.add_argument('--config_path', type=str, required=True, help='Path to video_config.yaml file')
-    parser.add_argument('--feature_base_path', type=str, required=True, help='Base directory containing trackId/riderId/clip_files')
+    parser.add_argument('config_path', type=str, help='Path to video_config.yaml file')
+    parser.add_argument('image_feature_path', type=str, help="Path to directory of clip features")
     parser.add_argument('--trackId', type=str, required=True, help='Track identifier')
     parser.add_argument('--sourceRiderId', type=str, required=True, help='Source rider identifier')
     parser.add_argument('--targetRiderId', type=str, required=True, help='Target rider identifier')
@@ -76,8 +76,8 @@ def main():
     setup_logging()
 
     # Set up directories
-    source_video_dir = Path(args.feature_base_path) / args.trackId / args.sourceRiderId
-    target_video_dir = Path(args.feature_base_path) / args.trackId / args.targetRiderId
+    source_video_dir = Path('downloaded_videos') / args.trackId / args.sourceRiderId
+    target_video_dir = Path('downloaded_videos') / args.trackId / args.targetRiderId
 
     # Load model
     model, _, _ = PositionClassifier.load(args.checkpoint_path, args.device)
@@ -88,22 +88,19 @@ def main():
     source_timestamps = load_source_splits(args.config_path, args.trackId, args.sourceRiderId)
     logging.info(f"Loaded {len(source_timestamps)} source splits from {args.config_path} for track {args.trackId} and rider {args.sourceRiderId}")
 
-    # Convert timestamps to frame indices
+    # Convert timestamps to frame indices in the source video
     source_video_path = Path(source_video_dir) / f"{args.trackId}_{args.sourceRiderId}.mp4"
     source_fps, _ = get_video_fps_and_total_frames(source_video_path)
-    source_end_indices = [timecode_to_frames(ts, source_fps) for ts in source_timestamps]
+    # Ignore the first split
+    source_end_indices = [timecode_to_frames(ts, source_fps) for idx, ts in enumerate(source_timestamps) if idx != 0]
 
     # Determine total frames in target video
-    target_npy_files = list(target_video_dir.glob("*.npy"))
-    if not target_npy_files:
-        logging.error(f"No .npy files found in {target_video_dir}")
-        exit(1)
-    max_end_idx = max([parse_clip_range(file.name)[1] for file in target_npy_files])
-    total_frames = max_end_idx + 1
-    logging.info(f"Target video has {total_frames} frames")
+    target_video_path = Path(target_video_dir) / f"{args.trackId}_{args.targetRiderId}.mp4"
+    _, target_total_frames = get_video_fps_and_total_frames(target_video_path)
+    logging.info(f"Target video has {target_total_frames} frames")
 
     # Generate candidate end indices
-    candidate_end_indices = list(range(args.F - 1, total_frames, args.stride))
+    candidate_end_indices = list(range(args.F - 1, target_total_frames, args.stride))
     logging.info(f"Generated {len(candidate_end_indices)} candidate split points with stride {args.stride}")
 
     # Generate source split clips
@@ -111,7 +108,7 @@ def main():
     for source_end_idx in source_end_indices:
         indices = get_clip_indices_ending_at(source_end_idx, args.F)
         start_idx = indices[0]
-        features = load_image_features_from_disk(args.trackId, args.sourceRiderId, start_idx, source_end_idx, args.feature_base_path)
+        features = load_image_features_from_disk(args.trackId, args.sourceRiderId, start_idx, source_end_idx, args.image_feature_path)
         assert features.size > 0, f"Failed to load features for source split at {source_end_idx}"
         # Pad features to match F
         features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
@@ -127,7 +124,7 @@ def main():
     for end_idx in tqdm(candidate_end_indices, desc="Processing target frames"):
         indices = get_clip_indices_ending_at(end_idx, args.F)
         start_idx = indices[0]
-        features = load_image_features_from_disk(args.trackId, args.targetRiderId, start_idx, end_idx, args.feature_base_path)
+        features = load_image_features_from_disk(args.trackId, args.targetRiderId, start_idx, end_idx, args.image_feature_path)
         assert features.size > 0, f"Failed to load features for source split at {end_idx}"
         # Pad features to match F
         features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
@@ -150,15 +147,18 @@ def main():
     for target_end_idx, source_end_idx, score in candidates:
         if target_end_idx not in assigned_target_indices and source_end_idx not in assigned_source_indices:
             predicted_splits.append({
+                'source_end_idx': source_end_idx,
+                'source_timecode': frame_idx_to_timecode(source_end_idx),
                 'target_end_idx': target_end_idx,
+                'target_timecode': frame_idx_to_timecode(target_end_idx),
                 'confidence': score,
-                'source_end_idx': source_end_idx
             })
             assigned_target_indices.add(target_end_idx)
             assigned_source_indices.add(source_end_idx)
 
     # Sort splits by source_end_idx to maintain order
     predicted_splits.sort(key=lambda x: x['source_end_idx'])
+
 
     # Save predicted splits
     with open(args.output_file, 'w') as f:

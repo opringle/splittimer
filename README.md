@@ -1,6 +1,5 @@
 ## TODO
 
-- set beta distribution seed
 - tune data augmentation parameters against validation loss
 
 ```bash
@@ -104,7 +103,7 @@ TODO train on I3D features instead of sequence of resnet features
 Find splits in a target video using the model
 
 ```bash
-python find_splits.py --config_path video_config.yaml --feature_base_path ./video_features --trackId leogang_2025 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_7_alpha_0_7_beta0_0_7_beta_0_7_frames_100_augmented_50/checkpoints/checkpoint_epoch_1.pth --frame_rate=100
+python find_splits.py video_config.yaml video_features --trackId leogang_2025 --F 100 --sourceRiderId asa_vermette --targetRiderId jordan_williams --frame_rate=100 --checkpoint_path artifacts/alpha0_0_7_alpha_0_7_beta0_0_7_beta_0_7_frames_100_augmented_50/checkpoints/checkpoint_epoch_7.pth
 ```
 
 View the predictions

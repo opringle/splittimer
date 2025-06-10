@@ -44,6 +44,17 @@ def timecode_to_frames(timecode, fps):
     frame_index = int(time_in_seconds * fps)    # Frame index in the actual video
     return frame_index
 
+def frame_idx_to_timecode(frame_idx: int):
+    fps = 24.0
+    # Convert frame_idx to a timecode in format MM:SS:FF assuming 24.0 fps
+    seconds = frame_idx / fps
+    minutes = int(seconds // 60)
+    seconds_remainder = int(seconds % 60)
+    frames = int(frame_idx % fps)
+    # Format as MM:SS:FF with zero-padding
+    timecode = f"{minutes:02d}:{seconds_remainder:02d}:{frames:02d}"
+    return timecode
+
 def setup_logging(log_level="INFO"):
     logging.basicConfig(level=getattr(logging, log_level.upper()), format='%(levelname)s: %(message)s')
 
