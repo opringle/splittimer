@@ -159,12 +159,10 @@ def main():
     parser = argparse.ArgumentParser(description="Generate training metadata for all rider combinations on each track.")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     parser.add_argument("--clip-length", type=int, required=True, help="Number of frames to use per clip")
-
     parser.add_argument("--alpha_split_0", type=float, default=0.5, help="Beta distribution alpha value at split 0")
     parser.add_argument("--alpha", type=float, default=0.5, help="Beta distribution alpha value at split > 0")
     parser.add_argument("--beta_split_0", type=float, default=0.5, help="Beta distribution beta value at split 0")
     parser.add_argument("--beta", type=float, default=0.5, help="Beta distribution beta value at split > 0")
-
     parser.add_argument("--max_negatives_per_positive", type=int, default=10, help="Max negative samples per split point")
     parser.add_argument("--num_augmented_positives_per_segment", type=int, default=50, help="Number of augmented samples per segment")
     parser.add_argument("--val_ratio", type=float, default=0.2, help="Ratio of tracks to use for validation (between 0 and 1)")
@@ -176,6 +174,7 @@ def main():
         help="Set the logging level (default: INFO)"
     )
     parser.add_argument("--ignore_first_split", action='store_true', help="Ignore the first split when generating training data")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible track splitting")
     args = parser.parse_args()
     
     log_level = getattr(logging, args.log_level.upper())
@@ -183,6 +182,10 @@ def main():
     
     if args.ignore_first_split:
         logging.info("Ignoring the first split for generating positive samples at split points")
+    
+    if args.seed is not None:
+        random.seed(args.seed)
+        logging.info(f"Set random seed to {args.seed} for reproducible track splitting")
     
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
