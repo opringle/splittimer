@@ -5,6 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import os
 import argparse
+import random  # Added for random.seed
 from sklearn.metrics import classification_report
 import logging
 from tqdm import tqdm
@@ -27,6 +28,12 @@ class NPZDataset(Dataset):
         label = data['labels'].astype(np.float32)
         return torch.from_numpy(clip1), torch.from_numpy(clip2), torch.from_numpy(label)
 
+def worker_init_fn(worker_id):
+    """Initialize random seed for DataLoader workers."""
+    worker_seed = torch.initial_seed() % 2**32 + worker_id
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 def main():
     parser = argparse.ArgumentParser(description="Train a position classifier on preprocessed video clip data.")
     parser.add_argument('data_dir', type=str)
@@ -44,9 +51,24 @@ def main():
     parser.add_argument('--resume_from', type=str, default=None)
     parser.add_argument('--artifacts_dir', type=str, default=None)
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')  # Added seed argument
     args = parser.parse_args()
 
     setup_logging(args.log_level)
+
+    # Set random seeds for reproducibility
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    logging.info(f"Set random seed to {args.seed} for reproducibility")
+
+    # Warn about potential non-determinism with num_workers > 0
+    if torch.utils.data.get_worker_info() is not None:
+        logging.warning("DataLoader num_workers > 0 may introduce non-determinism despite seeding. Consider setting num_workers=0 for full reproducibility.")
 
     compress_sizes = [int(x) for x in args.compress_sizes.split(',')] if args.compress_sizes else []
     post_lstm_sizes = [int(x) for x in args.post_lstm_sizes.split(',')] if args.post_lstm_sizes else []
@@ -65,13 +87,11 @@ def main():
 
     train_dataset = NPZDataset(train_files)
     val_dataset = NPZDataset(val_files) if val_files else None
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4) if val_dataset else None
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn) if val_dataset else None
 
     # Determine input shape from one batch
     clip1, clip2, _ = next(iter(train_loader))
-    # print(f"clip1.shape = {clip1.shape}")
-    # 1, 32, 50, 2049
     _, B, F, input_size = clip1.shape
 
     # Choose model based on sequence length

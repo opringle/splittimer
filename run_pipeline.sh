@@ -106,7 +106,8 @@ python preprocess_videos_into_samples.py \
     training_data \
     --F=$CLIP_LENGTH \
     --batch_size=$BATCH_SIZE \
-    --feature_type $FEATURE_TYPE
+    --feature_type $FEATURE_TYPE \
+    --seed $SEED
 
 # Format alpha and beta values for directory name (replace . with _)
 ALPHA_SPLIT_0_DIR=${ALPHA_SPLIT_0//./_}
@@ -132,6 +133,7 @@ python train_position_classifier.py \
     --dropout $DROPOUT \
     --eval_interval $EVAL_INTERVAL \
     --artifacts_dir $ARTIFACTS_DIR \
-    --checkpoint_interval 1
+    --checkpoint_interval 1 \
+    --seed $SEED
 
 echo "Pipeline completed"

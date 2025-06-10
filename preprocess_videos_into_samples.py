@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--sequence_length", type=int, default=10, help="Sequence length for sequence features")
     parser.add_argument("--feature_type", type=str, choices=['individual', 'sequence'], required=True, help="Type of features to use ('individual' or 'sequence')")
     parser.add_argument("--batch_size", type=int, default=32, help="Samples per .npz file")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible track splitting")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     args = parser.parse_args()
 
@@ -27,7 +28,7 @@ def main():
         logging.error("CSV file must contain a 'set' column")
         exit(1)
     
-    df = df.sample(frac=1, random_state=None, ignore_index=True)
+    df = df.sample(frac=1, random_state=args.seed, ignore_index=True)
     num_train = (df['set'] == 'train').sum()
     num_val = (df['set'] == 'val').sum()
     logging.info(f"Loaded metadata for {num_train} training and {num_val} validation samples")

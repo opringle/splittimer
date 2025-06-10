@@ -1,6 +1,7 @@
 ## TODO
 
-- tune data augmentation parameters against validation loss
+- ensure training results are reproducible with random seeds
+- annotate more videos (ews runs too)
 
 ```bash
 # best values
@@ -8,7 +9,6 @@
 ```
 
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
-- annotate more videos (ews runs too)
 
 ## Prerequisites
 
