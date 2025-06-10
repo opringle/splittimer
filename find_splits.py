@@ -66,14 +66,14 @@ def main():
     parser.add_argument('--targetRiderId', type=str, required=True, help='Target rider identifier')
     parser.add_argument('--checkpoint_path', type=str, required=True, help='Path to the model checkpoint file')
     parser.add_argument('--device', type=str, default=get_default_device_name(), help='Device to use (cuda or cpu)')
-    parser.add_argument('--output_file', type=str, default='predicted_splits.json', help='Output JSON file for predicted splits')
     parser.add_argument('--F', type=int, default=50, help='Number of frames per clip')
     parser.add_argument('--frame_rate', type=float, required=True, help='Frame rate of the videos (frames per second)')
     parser.add_argument('--stride', type=int, default=1, help='Stride for generating candidate split points in the target video')
     parser.add_argument('--threshold', type=float, default=0.5, help='Threshold for considering a target clip as a split')
+    parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     args = parser.parse_args()
 
-    setup_logging()
+    setup_logging(args.log_level)
 
     # Set up directories
     source_video_dir = Path('downloaded_videos') / args.trackId / args.sourceRiderId
@@ -93,10 +93,11 @@ def main():
     source_fps, _ = get_video_fps_and_total_frames(source_video_path)
     # Ignore the first split
     source_end_indices = [timecode_to_frames(ts, source_fps) for idx, ts in enumerate(source_timestamps) if idx != 0]
+    logging.debug(f"source_end_indices={source_end_indices}")
 
     # Determine total frames in target video
     target_video_path = Path(target_video_dir) / f"{args.trackId}_{args.targetRiderId}.mp4"
-    _, target_total_frames = get_video_fps_and_total_frames(target_video_path)
+    target_fps, target_total_frames = get_video_fps_and_total_frames(target_video_path)
     logging.info(f"Target video has {target_total_frames} frames")
 
     # Generate candidate end indices
@@ -148,9 +149,9 @@ def main():
         if target_end_idx not in assigned_target_indices and source_end_idx not in assigned_source_indices:
             predicted_splits.append({
                 'source_end_idx': source_end_idx,
-                'source_timecode': frame_idx_to_timecode(source_end_idx),
+                'source_timecode': frame_idx_to_timecode(source_end_idx, source_fps),
                 'target_end_idx': target_end_idx,
-                'target_timecode': frame_idx_to_timecode(target_end_idx),
+                'target_timecode': frame_idx_to_timecode(target_end_idx, target_fps),
                 'confidence': score,
             })
             assigned_target_indices.add(target_end_idx)
@@ -161,9 +162,10 @@ def main():
 
 
     # Save predicted splits
-    with open(args.output_file, 'w') as f:
+    output_file = f"{args.trackId}_{args.sourceRiderId}_to_{args.targetRiderId}.json"
+    with open(output_file, 'w') as f:
         json.dump(predicted_splits, f, indent=4)
-    logging.info(f"Saved {len(predicted_splits)} predicted splits to {args.output_file}")
+    logging.info(f"Saved {len(predicted_splits)} predicted splits to {output_file}")
 
 if __name__ == "__main__":
     main()

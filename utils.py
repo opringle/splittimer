@@ -1,4 +1,5 @@
 from enum import Enum
+import math
 import cv2
 import torch
 import torch.nn as nn
@@ -44,15 +45,34 @@ def timecode_to_frames(timecode, fps):
     frame_index = int(time_in_seconds * fps)    # Frame index in the actual video
     return frame_index
 
-def frame_idx_to_timecode(frame_idx: int):
-    fps = 24.0
-    # Convert frame_idx to a timecode in format MM:SS:FF assuming 24.0 fps
-    seconds = frame_idx / fps
-    minutes = int(seconds // 60)
-    seconds_remainder = int(seconds % 60)
-    frames = int(frame_idx % fps)
-    # Format as MM:SS:FF with zero-padding
-    timecode = f"{minutes:02d}:{seconds_remainder:02d}:{frames:02d}"
+def frame_idx_to_timecode(frame_index, fps):
+    """
+    Convert a frame index to a timecode in "MM:SS:FF" format based on the video's native frame rate.
+    The timecode reflects how it would appear in DaVinci Resolve when loaded at 24.0 FPS.
+    
+    Args:
+        frame_index (int): The frame index in the video.
+        fps (float): The native frame rate of the video.
+    
+    Returns:
+        str: The timecode in "MM:SS:FF" format.
+    """
+    # Calculate time in seconds from frame index
+    time_in_seconds = frame_index / fps
+    
+    # Extract minutes
+    MM = math.floor(time_in_seconds / 60)
+    
+    # Extract remaining seconds
+    remaining_seconds = time_in_seconds - MM * 60
+    SS = math.floor(remaining_seconds)
+    
+    # Extract fractional seconds and convert to frames at 24 FPS
+    fractional_seconds = remaining_seconds - SS
+    FF = math.floor(fractional_seconds * 24)
+    
+    # Format as MM:SS:FF with leading zeros
+    timecode = f"{MM:02d}:{SS:02d}:{FF:02d}"
     return timecode
 
 def setup_logging(log_level="INFO"):
