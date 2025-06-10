@@ -11,7 +11,7 @@ from tqdm import tqdm
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from utils import PositionClassifier, SequencePositionClassifier, count_parameters, get_default_device_name, setup_logging
+from utils import InteractionType, PositionClassifier, SequencePositionClassifier, count_parameters, get_default_device_name, setup_logging
 
 class NPZDataset(Dataset):
     def __init__(self, file_list):
@@ -34,17 +34,19 @@ def main():
     parser.add_argument('--num_epochs', type=int, default=1500)
     parser.add_argument('--learning_rate', type=float, default=0.0001)
     parser.add_argument('--bidirectional', action='store_true')
-    parser.add_argument('--compress_sizes', type=str, default='1024,512')
-    parser.add_argument('--post_lstm_sizes', type=str, default='256,128')
+    parser.add_argument('--compress_sizes', type=str, default=None)
+    parser.add_argument("--interaction_type", type=str, default="dot", choices=["dot", "mlp"])
+    parser.add_argument('--post_lstm_sizes', type=str, default=None)
     parser.add_argument('--hidden_size', type=int, default=256)
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--eval_interval', type=int, default=10)
     parser.add_argument('--checkpoint_interval', type=int, default=10)
     parser.add_argument('--resume_from', type=str, default=None)
     parser.add_argument('--artifacts_dir', type=str, default=None)
+    parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     args = parser.parse_args()
 
-    setup_logging()
+    setup_logging(args.log_level)
 
     compress_sizes = [int(x) for x in args.compress_sizes.split(',')] if args.compress_sizes else []
     post_lstm_sizes = [int(x) for x in args.post_lstm_sizes.split(',')] if args.post_lstm_sizes else []
@@ -52,6 +54,7 @@ def main():
     artifacts_dir = Path(args.artifacts_dir) if args.artifacts_dir else Path(f'artifacts/experiment_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=artifacts_dir)
+    logging.info(f"View logs at `tensorboard --logdir={artifacts_dir.parent}`")
     checkpoint_dir = artifacts_dir / 'checkpoints'
     checkpoint_dir.mkdir(exist_ok=True)
 
@@ -74,12 +77,13 @@ def main():
     # Choose model based on sequence length
     if F == 1:
         # Sequence features: use a simpler model without LSTM
-        model = SequencePositionClassifier(input_size, post_lstm_sizes, dropout=args.dropout).to(args.device)
+        model = SequencePositionClassifier(input_size, None, dropout=args.dropout).to(args.device)
     else:
         # Individual frame features: use LSTM-based model
         model = PositionClassifier(
             input_size=input_size,
             hidden_size=args.hidden_size,
+            interaction_type=InteractionType(args.interaction_type),
             bidirectional=args.bidirectional,
             compress_sizes=compress_sizes,
             post_lstm_sizes=post_lstm_sizes,

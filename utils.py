@@ -1,3 +1,4 @@
+from enum import Enum
 import cv2
 import torch
 import torch.nn as nn
@@ -71,8 +72,12 @@ def pad_features_to_length(features, indices, F):
 def setup_logging(log_level="INFO"):
     logging.basicConfig(level=getattr(logging, log_level.upper()), format='%(levelname)s: %(message)s')
 
+class InteractionType(Enum):
+    DOT = 'dot'
+    MLP = 'mlp'
+
 class PositionClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, bidirectional=False, compress_sizes=[], post_lstm_sizes=[], dropout=0.0):
+    def __init__(self, input_size, hidden_size, interaction_type=InteractionType.MLP, bidirectional=False, compress_sizes=[], post_lstm_sizes=[], dropout=0.0):
         super(PositionClassifier, self).__init__()
         self.bidirectional = bidirectional
         self.input_size = input_size
@@ -80,7 +85,9 @@ class PositionClassifier(nn.Module):
         self.compress_sizes = compress_sizes
         self.post_lstm_sizes = post_lstm_sizes
         self.dropout = dropout
+        self.interaction_type = interaction_type
         
+        # Compression layers (same for both interaction types)
         if compress_sizes:
             layers = []
             in_size = input_size
@@ -96,31 +103,39 @@ class PositionClassifier(nn.Module):
             self.compression = nn.Identity()
             lstm_input_size = input_size
         
+        # LSTM layer (same for both interaction types)
         self.lstm = nn.LSTM(lstm_input_size, hidden_size, batch_first=True, bidirectional=bidirectional)
-        lstm_output_size = 2 * hidden_size if bidirectional else hidden_size
-        concat_size = 2 * lstm_output_size
         
-        if post_lstm_sizes:
-            layers = []
-            in_size = concat_size
-            for size in post_lstm_sizes:
-                layers.append(nn.Linear(in_size, size))
-                layers.append(nn.ReLU())
-                if dropout > 0:
-                    layers.append(nn.Dropout(dropout))
-                in_size = size
-            self.post_lstm = nn.Sequential(*layers)
-            final_input_size = post_lstm_sizes[-1]
+        # Configure interaction-specific layers
+        if self.interaction_type == InteractionType.MLP:
+            lstm_output_size = 2 * hidden_size if bidirectional else hidden_size
+            concat_size = 2 * lstm_output_size
+            if post_lstm_sizes:
+                layers = []
+                in_size = concat_size
+                for size in post_lstm_sizes:
+                    layers.append(nn.Linear(in_size, size))
+                    layers.append(nn.ReLU())
+                    if dropout > 0:
+                        layers.append(nn.Dropout(dropout))
+                    in_size = size
+                self.post_lstm = nn.Sequential(*layers)
+                final_input_size = post_lstm_sizes[-1]
+            else:
+                self.post_lstm = nn.Identity()
+                final_input_size = concat_size
+            self.fc = nn.Linear(final_input_size, 1)
+        elif self.interaction_type == InteractionType.DOT:
+            self.fc = nn.Linear(1, 1)
         else:
-            self.post_lstm = nn.Identity()
-            final_input_size = concat_size
-        
-        self.fc = nn.Linear(final_input_size, 1)
+            raise ValueError("Invalid interaction_type")
 
     def forward(self, clip1, clip2):
+        # Compress input clips
         compressed_clip1 = self.compression(clip1)
         compressed_clip2 = self.compression(clip2)
         
+        # Get LSTM outputs
         if self.bidirectional:
             _, (h_n, _) = self.lstm(compressed_clip1)
             h1 = torch.cat((h_n[-2], h_n[-1]), dim=1)
@@ -132,9 +147,16 @@ class PositionClassifier(nn.Module):
             _, (h2, _) = self.lstm(compressed_clip2)
             h2 = h2[-1]
         
-        combined = torch.cat((h1, h2), dim=1)
-        post_lstm_output = self.post_lstm(combined)
-        output = self.fc(post_lstm_output)
+        # Handle interaction based on type
+        if self.interaction_type == InteractionType.MLP:
+            combined = torch.cat((h1, h2), dim=1)
+            post_lstm_output = self.post_lstm(combined)
+            output = self.fc(post_lstm_output)
+        elif self.interaction_type == InteractionType.DOT:
+            dot_product = torch.sum(h1 * h2, dim=1, keepdim=True)
+            output = self.fc(dot_product)
+        else:
+            raise ValueError("Invalid interaction_type")
         return output
 
     def save(self, path, epoch, optimizer):
@@ -150,6 +172,7 @@ class PositionClassifier(nn.Module):
                 'compress_sizes': self.compress_sizes,
                 'post_lstm_sizes': self.post_lstm_sizes,
                 'dropout': self.dropout,
+                'interaction_type': self.interaction_type.value,
             }
         }
         torch.save(checkpoint, path)
@@ -158,10 +181,11 @@ class PositionClassifier(nn.Module):
     def load(cls, path, device):
         checkpoint = torch.load(path, map_location=device)
         model_config = checkpoint['model_config']
-        model = cls(**model_config).to(device)
+        interaction_type = InteractionType(model_config.pop('interaction_type'))
+        model = cls(interaction_type=interaction_type, **model_config).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         return model, checkpoint['epoch'], checkpoint['optimizer_state_dict']
-
+    
 class SequencePositionClassifier(nn.Module):
     def __init__(self, input_size, hidden_sizes, dropout=0.0):
         super().__init__()
