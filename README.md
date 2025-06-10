@@ -1,6 +1,7 @@
 ## TODO
 
-- achieve perfect validation score??? Seems an easy task. This should be pos
+- tune data augmentation parameters against true validation loss
+- achieve perfect validation score??? Seems an easy task. This should be possible. Try longer sequence lengths???
 - update preview labels to look at 2 video clips and a label
 
 ## Prerequisites
@@ -24,7 +25,11 @@ pip install -r ./requirements.txt
 brew install ffmpeg
 ```
 
-## Preprocess GoPro runs
+## Train position classifiers
+
+```bash
+./run_pipeline.sh 0.5 0.5 0.5 0.5
+```
 
 Download youtube videos based on config file
 
@@ -42,7 +47,7 @@ open ./split_times_inspection/index.html
 Generate positive and negative labels to train any model type
 
 ```bash
-python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50
+python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5
 ```
 
 Inspect the labels
@@ -82,16 +87,7 @@ python preprocess_videos_into_samples.py training_data/training_metadata.csv vid
 Train and evaluate a model on the data
 
 ```bash
-# no compression before lstm. dot product after
-python train_position_classifier.py training_data --bidirectional --hidden_size 512 --interaction_type dot --learning_rate 0.01 --dropout 0.0 --eval_interval 1
-
-# compress clips before lstm. dot product after
-python train_position_classifier.py training_data --bidirectional --compress_sizes 512,128 --interaction_type dot --hidden_size 64 --learning_rate 0.0001 --dropout 0.0 --eval_interval 1 --checkpoint_interval 1
-
-# best yet: 0.8806 macro average F1 score on an unseen track
 python train_position_classifier.py training_data --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --dropout 0.5 --eval_interval 1 --checkpoint_interval 1
-
-python train_position_classifier.py training_data --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --dropout 0.6 --eval_interval 1 --checkpoint_interval 1
 ```
 
 ```bash

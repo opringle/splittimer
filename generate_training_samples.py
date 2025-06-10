@@ -63,7 +63,7 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
                              v2_indices, v2_labels, v2_rider_id, v2_track_id,
                              clip_length,
                              max_negatives_per_positive=10, num_augmented_positives_per_segment=5,
-                             ignore_first_split=False):
+                             ignore_first_split=False, alpha_split_0=0.5, alpha=0.5, beta_split_0=0.5, beta=0.5):
     assert v1_track_id == v2_track_id, "Track IDs must be the same for v1 and v2"
     v1_split_indices = v1_indices[v1_labels == 1.0]
     v2_split_indices = v2_indices[v2_labels == 1.0]
@@ -123,10 +123,10 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
         num_samples = min(num_augmented_positives_per_segment, len(possible_idx1))
 
         rng = np.random.default_rng()
-        # if first split concentrate probability near end of split
+        # if first split concentrate probability near end of split (start)
         # else concentrate at both start and end
-        alpha = 50 if seg == 0 else 0.1
-        beta = 1.0 if seg == 0 else 0.1
+        alpha = alpha_split_0 if seg == 0 else alpha
+        beta = beta_split_0 if seg == 0 else beta
         relative_positions = rng.beta(a=alpha, b=beta, size=num_samples)
         min_idx = possible_idx1[0]
         max_idx = possible_idx1[-1]
@@ -159,6 +159,12 @@ def main():
     parser = argparse.ArgumentParser(description="Generate training metadata for all rider combinations on each track.")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     parser.add_argument("--clip-length", type=int, required=True, help="Number of frames to use per clip")
+
+    parser.add_argument("--alpha_split_0", type=float, default=0.5, help="Beta distribution alpha value at split 0")
+    parser.add_argument("--alpha", type=float, default=0.5, help="Beta distribution alpha value at split > 0")
+    parser.add_argument("--beta_split_0", type=float, default=0.5, help="Beta distribution beta value at split 0")
+    parser.add_argument("--beta", type=float, default=0.5, help="Beta distribution beta value at split > 0")
+
     parser.add_argument("--max_negatives_per_positive", type=int, default=10, help="Max negative samples per split point")
     parser.add_argument("--num_augmented_positives_per_segment", type=int, default=50, help="Number of augmented samples per segment")
     parser.add_argument("--val_ratio", type=float, default=0.2, help="Ratio of tracks to use for validation (between 0 and 1)")
@@ -216,14 +222,21 @@ def main():
             
             v1_indices, v1_labels, v1_rider_id, v1_track_id = get_video_metadata(str(video_path1), video1['splits'], rider_id1, track_id)
             v2_indices, v2_labels, v2_rider_id, v2_track_id = get_video_metadata(str(video_path2), video2['splits'], rider_id2, track_id)
+
+            # do not generate augmented samples in validation
+            num_augmented_positives_per_segment = args.num_augmented_positives_per_segment if set_type != 'val' else 0
             
             logging.debug(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
             sample_labels, sample_indices, sample_metadata = generate_training_samples(
                 v1_indices, v1_labels, v1_rider_id, v1_track_id,
                 v2_indices, v2_labels, v2_rider_id, v2_track_id, args.clip_length,
                 max_negatives_per_positive=args.max_negatives_per_positive,
-                num_augmented_positives_per_segment=args.num_augmented_positives_per_segment,
-                ignore_first_split=args.ignore_first_split
+                num_augmented_positives_per_segment=num_augmented_positives_per_segment,
+                ignore_first_split=args.ignore_first_split,
+                alpha_split_0=args.alpha_split_0,
+                alpha=args.alpha,
+                beta_split_0=args.beta_split_0,
+                beta=args.beta
             )
             
             data = {
@@ -249,7 +262,7 @@ def main():
         output_filename = "training_metadata.csv"
         training_data_file_path = os.path.join(training_data_output_path, output_filename)
         df.to_csv(training_data_file_path, index=False)
-        logging.info(f"Saved {len(df)} training metadata to {training_data_file_path}")
+        logging.info(f"Saved {len(df)} training metadata to {training_data_file_path}. {df['set'].value_counts().get('train', 0)} training, {df['set'].value_counts().get('val', 0)} validation")
     else:
         logging.info("No training samples generated.")
 
