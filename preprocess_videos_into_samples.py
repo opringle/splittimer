@@ -88,7 +88,7 @@ def main():
             train_batch_clip2s.append(v2_features_with_pos)
             train_batch_labels.append(row.label)
             if len(train_batch_clip1s) >= args.batch_size:
-                save_batch(train_dir, train_batch_count, train_batch_clip1s, train_batch_clip2s, train_batch_labels, feature_type=args.feature_type)
+                save_batch(train_dir, train_batch_count, train_batch_clip1s, train_batch_clip2s, train_batch_labels)
                 train_batch_clip1s, train_batch_clip2s, train_batch_labels = [], [], []
                 train_batch_count += 1
         elif row.set == 'val':
@@ -96,17 +96,17 @@ def main():
             val_batch_clip2s.append(v2_features_with_pos)
             val_batch_labels.append(row.label)
             if len(val_batch_clip1s) >= args.batch_size:
-                save_batch(val_dir, val_batch_count, val_batch_clip1s, val_batch_clip2s, val_batch_labels, feature_type=args.feature_type)
+                save_batch(val_dir, val_batch_count, val_batch_clip1s, val_batch_clip2s, val_batch_labels)
                 val_batch_clip1s, val_batch_clip2s, val_batch_labels = [], [], []
                 val_batch_count += 1
         else:
             logging.warning(f"Unknown set value: {row.set}")
 
     if train_batch_clip1s:
-        save_batch(train_dir, train_batch_count, train_batch_clip1s, train_batch_clip2s, train_batch_labels, feature_type=args.feature_type)
+        save_batch(train_dir, train_batch_count, train_batch_clip1s, train_batch_clip2s, train_batch_labels)
         train_batch_count += 1
     if val_batch_clip1s:
-        save_batch(val_dir, val_batch_count, val_batch_clip1s, val_batch_clip2s, val_batch_labels, feature_type=args.feature_type)
+        save_batch(val_dir, val_batch_count, val_batch_clip1s, val_batch_clip2s, val_batch_labels)
         val_batch_count += 1
 
     logging.info(f"Generated {num_train} training samples in {train_batch_count} batches")

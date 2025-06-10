@@ -67,7 +67,9 @@ def main():
 
     # Determine input shape from one batch
     clip1, clip2, _ = next(iter(train_loader))
-    B, F, input_size = clip1.shape
+    # print(f"clip1.shape = {clip1.shape}")
+    # 1, 32, 50, 2049
+    _, B, F, input_size = clip1.shape
 
     # Choose model based on sequence length
     if F == 1:
@@ -109,9 +111,9 @@ def main():
         total_loss = 0.0
         total_samples = 0
         for clip1, clip2, labels in tqdm(train_loader, desc=f'Epoch {epoch+1}/{args.num_epochs}'):
-            clip1 = clip1.to(args.device)
-            clip2 = clip2.to(args.device)
-            labels = labels.to(args.device)
+            clip1 = clip1.to(args.device).squeeze()
+            clip2 = clip2.to(args.device).squeeze()
+            labels = labels.to(args.device).squeeze()
             optimizer.zero_grad()
             outputs = model(clip1, clip2)
             loss = criterion(outputs.squeeze(), labels)
@@ -131,9 +133,9 @@ def main():
                 all_preds, all_labels = [], []
                 with torch.no_grad():
                     for clip1, clip2, labels in val_loader:
-                        clip1 = clip1.to(args.device)
-                        clip2 = clip2.to(args.device)
-                        labels = labels.to(args.device)
+                        clip1 = clip1.to(args.device).squeeze()
+                        clip2 = clip2.to(args.device).squeeze()
+                        labels = labels.to(args.device).squeeze()
                         outputs = model(clip1, clip2)
                         loss = criterion(outputs.squeeze(), labels)
                         val_loss += loss.item() * labels.size(0)

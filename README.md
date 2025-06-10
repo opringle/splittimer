@@ -1,13 +1,6 @@
 ## TODO
 
-- speed up feature extraction
-
-current logic: 
-- loop through each video
-- loop through each clip appending individual frames to buffer
-- preprocess batch of frames
--  
-
+- handle case where `assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"`
 - achieve validation F1 score on positive class > 0.95
 
 ## Prerequisites

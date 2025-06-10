@@ -358,10 +358,12 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
 def get_clip_indices_ending_at(end_idx, F):
     start = max(0, end_idx - F + 1)
     clip_indices = list(range(start, end_idx + 1))
-    assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"
-    # if len(clip_indices) < F:
-    #     print
-    #     clip_indices += [clip_indices[-1]] * (F - len(clip_indices))
+    # assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"
+    if len(clip_indices) < F:
+        # This just repeats the final frame
+        # print(f"clip_indices before = {clip_indices}")
+        clip_indices += [clip_indices[-1]] * (F - len(clip_indices))
+        # print(f"clip_indices after = {clip_indices}")
     return clip_indices[:F]
 
 def save_batch(save_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):
