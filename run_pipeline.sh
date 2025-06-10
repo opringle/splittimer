@@ -5,10 +5,11 @@ ALPHA_SPLIT_0=""
 ALPHA=""
 BETA_SPLIT_0=""
 BETA=""
+CLIP_LENGTH=""
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 --alpha_split_0 <value> --alpha <value> --beta_split_0 <value> --beta <value>"
+    echo "Usage: $0 --alpha_split_0 <value> --alpha <value> --beta_split_0 <value> --beta <value> --clip_length <value>"
     exit 1
 }
 
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
             BETA="$2"
             shift 2
             ;;
+        --clip_length)
+            CLIP_LENGTH="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             usage
@@ -39,19 +44,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check if all required arguments are provided
-if [ -z "$ALPHA_SPLIT_0" ] || [ -z "$ALPHA" ] || [ -z "$BETA_SPLIT_0" ] || [ -z "$BETA" ]; then
-    echo "Error: All arguments (--alpha_split_0, --alpha, --beta_split_0, --beta) are required."
+if [ -z "$ALPHA_SPLIT_0" ] || [ -z "$ALPHA" ] || [ -z "$BETA_SPLIT_0" ] || [ -z "$BETA" ] || [ -z "$CLIP_LENGTH" ]; then
+    echo "Error: All arguments (--alpha_split_0, --alpha, --beta_split_0, --beta, --clip_length) are required."
     usage
 fi
 
 # Base command parameters
 CONFIG="video_config.yaml"
-CLIP_LENGTH=50
 MAX_NEGATIVES=1
 SEED=1
 NUM_AUGMENTED=50
 FEATURE_TYPE="individual"
-F=50
 BATCH_SIZE=32
 BIDIRECTIONAL="--bidirectional"
 COMPRESS_SIZES=128
@@ -63,7 +66,7 @@ DROPOUT=0.5
 EVAL_INTERVAL=1
 
 # Log the parameters being used
-echo "Running pipeline with alpha_split_0=$ALPHA_SPLIT_0, alpha=$ALPHA, beta_split_0=$BETA_SPLIT_0, beta=$BETA"
+echo "Running pipeline with alpha_split_0=$ALPHA_SPLIT_0, alpha=$ALPHA, beta_split_0=$BETA_SPLIT_0, beta=$BETA, clip_length=$CLIP_LENGTH"
 
 # Run the first Python script: generate training samples
 python generate_training_samples.py \
@@ -87,7 +90,7 @@ python preprocess_videos_into_samples.py \
     training_data/training_metadata.csv \
     video_features \
     training_data \
-    --F=$F \
+    --F=$CLIP_LENGTH \
     --batch_size=$BATCH_SIZE \
     --feature_type $FEATURE_TYPE
 
@@ -96,9 +99,10 @@ ALPHA_SPLIT_0_DIR=${ALPHA_SPLIT_0//./_}
 ALPHA_DIR=${ALPHA//./_}
 BETA_SPLIT_0_DIR=${BETA_SPLIT_0//./_}
 BETA_DIR=${BETA//./_}
+CLIP_LENGTH_DIR=${CLIP_LENGTH//./_}
 
 # Construct artifacts directory path
-ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}"
+ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_cliplength_${CLIP_LENGTH_DIR}"
 
 # Run the third Python script: train classifier
 python train_position_classifier.py \

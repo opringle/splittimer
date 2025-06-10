@@ -3,14 +3,18 @@
 - tune data augmentation parameters against validation loss
 
 ```bash
-./run_pipeline.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5
+# best beta distribution, 
+./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 50
 
-./run_pipeline.sh --alpha_split_0 10.0 --alpha 0.1 --beta_split_0 1.0 --beta 0.1
+# best clip length?
+./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100
+./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 25
+
+# best number of augmented positives
 ```
 
-- tune clip length against validation loss
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
-- annotate more videos
+- annotate more videos (ews runs too)
 
 ## Prerequisites
 
