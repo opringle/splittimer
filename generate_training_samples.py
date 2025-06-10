@@ -30,6 +30,7 @@ def get_video_metadata(video_path, splits, rider_id, track_id):
 
 def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
                              v2_indices, v2_labels, v2_rider_id, v2_track_id,
+                             clip_length, beta=0.5,
                              max_negatives_per_positive=10, num_augmented_positives_per_segment=5,
                              ignore_first_split=False):
     assert v1_track_id == v2_track_id, "Track IDs must be the same for v1 and v2"
@@ -71,7 +72,9 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
         attempts = 0
         max_attempts = 50
         while neg_count < max_negatives_per_positive and attempts < max_attempts:
-            v2_idx = random.randint(0, v2_total_frames - 1)
+            v2_min_idx = v2_split_indices[0] + clip_length - 1
+            logging.debug(f"v2_min_idx={v2_min_idx}. first split index = {v2_split_indices[0]} clip length = {clip_length}")
+            v2_idx = random.randint(v2_min_idx, v2_total_frames - 1)
             is_false_negative = v2_idx in v2_frame_idx_to_split_number and v2_frame_idx_to_split_number[v2_idx] == split_number
             if is_false_negative:
                 attempts += 1
@@ -96,15 +99,21 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
         v2_start_seg = v2_split_indices[seg]
         v2_end_seg = v2_split_indices[seg + 1]
         
+        # For the first segment, start at split_0_idx + clip_length
+        if seg == 0:
+            v1_start_seg = v1_start_seg + clip_length
+            v2_start_seg = v2_start_seg + clip_length
+
         v1_seg_length = v1_end_seg - v1_start_seg
         v2_seg_length = v2_end_seg - v2_start_seg
-        
+
+        # Ensure clip fits within video        
         possible_idx1 = list(range(v1_start_seg, v1_end_seg + 1))
         
+        # Sample positions in v1 using beta distribution
         num_samples = min(num_augmented_positives_per_segment, len(possible_idx1))
         rng = np.random.default_rng()
-        relative_positions = rng.beta(a=0.5, b=0.5, size=num_samples)
-        
+        relative_positions = rng.beta(a=beta, b=beta, size=num_samples)
         min_idx = possible_idx1[0]
         max_idx = possible_idx1[-1]
         selected_idx1 = [int(min_idx + p * (max_idx - min_idx)) for p in relative_positions]
@@ -131,7 +140,9 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
             neg_count = 0
             attempts = 0
             while neg_count < max_negatives_per_positive and attempts < max_attempts:
-                random_idx2 = random.randint(0, v2_total_frames - 1)
+                # TODO: v2_idx must be >= v2 first split frame + clip length - 1
+                v2_min_idx = v2_split_indices[0] + clip_length - 1
+                random_idx2 = random.randint(v2_min_idx, v2_total_frames - 1)
                 sample_labels.append(0.0)
                 sample_indices.append((idx1, random_idx2))
                 sample_metadata.append({
@@ -149,6 +160,8 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
 def main():
     parser = argparse.ArgumentParser(description="Generate training metadata for all rider combinations on each track.")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
+    parser.add_argument("--clip-length", type=int, required=True, help="Number of frames to use per clip")
+    parser.add_argument("--beta", type=float, default=0.5, help="Used to define the beta distribution for positive augmented sample")
     parser.add_argument("--max_negatives_per_positive", type=int, default=10, help="Max negative samples per split point")
     parser.add_argument("--num_augmented_positives_per_segment", type=int, default=50, help="Number of augmented samples per segment")
     parser.add_argument("--val_ratio", type=float, default=0.2, help="Ratio of tracks to use for validation (between 0 and 1)")
@@ -213,7 +226,8 @@ def main():
             logging.debug(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
             sample_labels, sample_indices, sample_metadata = generate_training_samples(
                 v1_indices, v1_labels, v1_rider_id, v1_track_id,
-                v2_indices, v2_labels, v2_rider_id, v2_track_id,
+                v2_indices, v2_labels, v2_rider_id, v2_track_id, args.clip_length, 
+                beta=args.beta, 
                 max_negatives_per_positive=args.max_negatives_per_positive,
                 num_augmented_positives_per_segment=args.num_augmented_positives_per_segment,
                 ignore_first_split=args.ignore_first_split

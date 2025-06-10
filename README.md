@@ -1,9 +1,9 @@
 ## TODO
 
-- achieve best validation F1 score on positive class > 0.95
-- handle case where `assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"`
+- never select a sample index
+- intelligently handle case where `assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"` instead of just repeating final frame
+- achieve perfect validation score??? Seems an easy task. This should be pos
 - update preview labels to look at 2 video clips and a label
-- remove 3d feature logic from code
 
 ## Prerequisites
 
@@ -44,14 +44,14 @@ open ./split_times_inspection/index.html
 Generate positive and negative labels to train any model type
 
 ```bash
-python generate_training_samples.py --config video_config.yaml --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50
+python generate_training_samples.py --config video_config.yaml --clip-length 50 --beta=10 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50
 ```
 
 Inspect the labels
 
 ```bash
-python inspect_training_data.py training_data/training_metadata.csv && \
-open ./training_data_inspection/index.html
+python inspect_training_data.py training_data/training_metadata.csv --num_samples=15 --sample_types augmented && \
+open ./training_data_inspection/index.html 
 ```
 
 Compute features for each frame index and save to disk
@@ -90,7 +90,7 @@ python train_position_classifier.py training_data --bidirectional --hidden_size 
 # compress clips before lstm. dot product after
 python train_position_classifier.py training_data --bidirectional --compress_sizes 512,128 --interaction_type dot --hidden_size 64 --learning_rate 0.0001 --dropout 0.0 --eval_interval 1 --checkpoint_interval 1
 
-# best yet: 0.8758 macro average F1 score
+# best yet: 0.8806 macro average F1 score on an unseen track
 python train_position_classifier.py training_data --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --dropout 0.5 --eval_interval 1 --checkpoint_interval 1
 
 python train_position_classifier.py training_data --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --dropout 0.6 --eval_interval 1 --checkpoint_interval 1

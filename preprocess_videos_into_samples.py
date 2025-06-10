@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import logging
 from tqdm import tqdm
-from utils import pad_features_to_length, setup_logging, parse_clip_range, load_image_features_from_disk, get_clip_indices_ending_at, save_batch
+from utils import setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, save_batch
 
 def main():
     parser = argparse.ArgumentParser(description="Generate batched training data using precomputed features.")
@@ -44,6 +44,7 @@ def main():
     for row in tqdm(df.itertuples(), total=len(df), desc="Generating samples"):
         if args.feature_type == 'individual':
             # Load individual frame features for a sequence of frames
+            logging.debug(f"Generating sample with row: {row}")
             v1_indices = get_clip_indices_ending_at(row.v1_frame_idx, args.F)
             v2_indices = get_clip_indices_ending_at(row.v2_frame_idx, args.F)
 
@@ -55,17 +56,14 @@ def main():
                 logging.error(f"Failed to load individual features for v1 clip {v1_start_idx}:{v1_end_idx}")
                 continue
 
-            v1_features_padded = pad_features_to_length(v1_features, v1_indices, args.F)
-
             v2_features = load_image_features_from_disk(row.track_id, row.v2_rider_id, v2_start_idx, v2_end_idx, args.image_feature_path, feature_type='individual')
             if v2_features.size == 0 or v2_features.shape[0] != (v2_end_idx - v2_start_idx + 1):
                 logging.error(f"Failed to load individual features for v2 clip {v2_start_idx}:{v2_end_idx}")
                 continue
 
-            v2_features_padded = pad_features_to_length(v2_features, v2_indices, args.F)
 
-            v1_features_with_pos = np.concatenate([v1_features_padded, np.array(v1_indices, dtype=np.float32)[:, None]], axis=1)
-            v2_features_with_pos = np.concatenate([v2_features_padded, np.array(v2_indices, dtype=np.float32)[:, None]], axis=1)
+            v1_features_with_pos = np.concatenate([v1_features, np.array(v1_indices, dtype=np.float32)[:, None]], axis=1)
+            v2_features_with_pos = np.concatenate([v2_features, np.array(v2_indices, dtype=np.float32)[:, None]], axis=1)
 
         elif args.feature_type == 'sequence':
             # Load sequence features for the frame ending at the specified index
