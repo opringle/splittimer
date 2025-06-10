@@ -400,6 +400,7 @@ def save_batch(save_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):
     batch_clip_1_tensor = np.stack(batch_clip1s, axis=0)
     batch_clip_2_tensor = np.stack(batch_clip2s, axis=0)
     batch_label_tensor = np.array(batch_labels)
+    logging.debug(f"Saving batch {batch_count}. batch_clip_1_tensor.shape={batch_clip_1_tensor.shape} batch_clip_2_tensor.shape={batch_clip_2_tensor.shape}")
     np.savez(
         save_dir / f"batch_{batch_count:06d}.npz",
         clip1s=batch_clip_1_tensor,

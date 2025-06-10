@@ -114,8 +114,11 @@ ALPHA_DIR=${ALPHA//./_}
 BETA_SPLIT_0_DIR=${BETA_SPLIT_0//./_}
 BETA_DIR=${BETA//./_}
 
-# Construct artifacts directory path
-ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_frames_${CLIP_LENGTH}_augmented_${NUM_AUGMENTED}"
+# Generate timestamp in YYYYMMDD_HHMMSS format
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# Construct artifacts directory path with timestamp
+ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_frames_${CLIP_LENGTH}_augmented_${NUM_AUGMENTED}_${TIMESTAMP}"
 
 # Run the third Python script: train classifier
 python train_position_classifier.py \

@@ -33,10 +33,6 @@ brew install ffmpeg
 
 ## Train position classifiers
 
-```bash
-./run_pipeline.sh 0.5 0.5 0.5 0.5
-```
-
 Download youtube videos based on config file
 
 ```bash
@@ -83,7 +79,7 @@ rm -rf ./training_data/train && rm -rf ./training_data/val
 
 
 ```bash
-python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --batch_size=32 --feature_type individual --log-level DEBUG
+python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --add_position_feature --add_percent_completion_feature --batch_size=32 --feature_type individual --log-level DEBUG
 ```
 
 ```bash
