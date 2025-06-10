@@ -1,16 +1,11 @@
 ## TODO
 
+- set beta distribution seed
 - tune data augmentation parameters against validation loss
 
 ```bash
-# best beta distribution, 
-./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 50
-
-# best clip length?
-./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100
-./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 25
-
-# best number of augmented positives
+# best values
+./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100 --num_augmented 50
 ```
 
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
@@ -109,7 +104,7 @@ TODO train on I3D features instead of sequence of resnet features
 Find splits in a target video using the model
 
 ```bash
-python find_splits.py --config_path video_config.yaml --feature_base_path ./video_features --trackId loudenvielle_2025 --sourceRiderId amaury_pierron --targetRiderId vali_holl --checkpoint_path artifacts/experiment_20250607_071920/checkpoints/checkpoint_epoch_1.pth --frame_rate=25.0
+python find_splits.py --config_path video_config.yaml --feature_base_path ./video_features --trackId leogang_2025 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_7_alpha_0_7_beta0_0_7_beta_0_7_frames_100_augmented_50/checkpoints/checkpoint_epoch_1.pth --frame_rate=100
 ```
 
 View the predictions

@@ -185,6 +185,7 @@ def main():
     
     if args.seed is not None:
         random.seed(args.seed)
+        np.random.seed(args.seed)
         logging.info(f"Set random seed to {args.seed} for reproducible track splitting")
     
     with open(args.config, 'r') as f:

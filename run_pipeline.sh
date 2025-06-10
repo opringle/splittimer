@@ -6,10 +6,11 @@ ALPHA=""
 BETA_SPLIT_0=""
 BETA=""
 CLIP_LENGTH=""
+NUM_AUGMENTED=""
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 --alpha_split_0 <value> --alpha <value> --beta_split_0 <value> --beta <value> --clip_length <value>"
+    echo "Usage: $0 --alpha_split_0 <value> --alpha <value> --beta_split_0 <value> --beta <value> --clip_length <value> --num_augmented <value>"
     exit 1
 }
 
@@ -36,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             CLIP_LENGTH="$2"
             shift 2
             ;;
+        --num_augmented)
+            NUM_AUGMENTED="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             usage
@@ -44,16 +49,25 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check if all required arguments are provided
-if [ -z "$ALPHA_SPLIT_0" ] || [ -z "$ALPHA" ] || [ -z "$BETA_SPLIT_0" ] || [ -z "$BETA" ] || [ -z "$CLIP_LENGTH" ]; then
-    echo "Error: All arguments (--alpha_split_0, --alpha, --beta_split_0, --beta, --clip_length) are required."
+if [ -z "$ALPHA_SPLIT_0" ] || [ -z "$ALPHA" ] || [ -z "$BETA_SPLIT_0" ] || [ -z "$BETA" ] || [ -z "$CLIP_LENGTH" ] || [ -z "$NUM_AUGMENTED" ]; then
+    echo "Error: All arguments (--alpha_split_0, --alpha, --beta_split_0, --beta, --clip_length, --num_augmented) are required."
     usage
+fi
+
+# Validate clip_length and num_augmented are positive integers
+if ! [[ "$CLIP_LENGTH" =~ ^[0-9]+$ ]] || [ "$CLIP_LENGTH" -le 0 ]; then
+    echo "Error: --clip_length must be a positive integer."
+    exit 1
+fi
+if ! [[ "$NUM_AUGMENTED" =~ ^[0-9]+$ ]] || [ "$NUM_AUGMENTED" -le 0 ]; then
+    echo "Error: --num_augmented must be a positive integer."
+    exit 1
 fi
 
 # Base command parameters
 CONFIG="video_config.yaml"
 MAX_NEGATIVES=1
 SEED=1
-NUM_AUGMENTED=50
 FEATURE_TYPE="individual"
 BATCH_SIZE=32
 BIDIRECTIONAL="--bidirectional"
@@ -66,7 +80,7 @@ DROPOUT=0.5
 EVAL_INTERVAL=1
 
 # Log the parameters being used
-echo "Running pipeline with alpha_split_0=$ALPHA_SPLIT_0, alpha=$ALPHA, beta_split_0=$BETA_SPLIT_0, beta=$BETA, clip_length=$CLIP_LENGTH"
+echo "Running pipeline with alpha_split_0=$ALPHA_SPLIT_0, alpha=$ALPHA, beta_split_0=$BETA_SPLIT_0, beta=$BETA, clip_length=$CLIP_LENGTH, num_augmented=$NUM_AUGMENTED"
 
 # Run the first Python script: generate training samples
 python generate_training_samples.py \
@@ -99,10 +113,9 @@ ALPHA_SPLIT_0_DIR=${ALPHA_SPLIT_0//./_}
 ALPHA_DIR=${ALPHA//./_}
 BETA_SPLIT_0_DIR=${BETA_SPLIT_0//./_}
 BETA_DIR=${BETA//./_}
-CLIP_LENGTH_DIR=${CLIP_LENGTH//./_}
 
 # Construct artifacts directory path
-ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_cliplength_${CLIP_LENGTH_DIR}"
+ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_frames_${CLIP_LENGTH}_augmented_${NUM_AUGMENTED}"
 
 # Run the third Python script: train classifier
 python train_position_classifier.py \
@@ -115,4 +128,7 @@ python train_position_classifier.py \
     --learning_rate $LEARNING_RATE \
     --dropout $DROPOUT \
     --eval_interval $EVAL_INTERVAL \
-    --artifacts_dir $ARTIFACTS_DIR
+    --artifacts_dir $ARTIFACTS_DIR \
+    --checkpoint_interval 1
+
+echo "Pipeline completed"
