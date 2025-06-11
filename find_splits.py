@@ -6,17 +6,7 @@ import logging
 import json
 from tqdm import tqdm
 import yaml
-from utils import PositionClassifier, frame_idx_to_timecode, get_default_device_name, get_video_fps_and_total_frames, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, parse_clip_range, timecode_to_frames
-
-def parse_timestamp(timestamp):
-    """Parse a timestamp in MM:SS:FF format into minutes, seconds, and frames."""
-    parts = timestamp.split(':')
-    if len(parts) != 3:
-        raise ValueError(f"Invalid timestamp format: {timestamp}. Expected MM:SS:FF")
-    minutes = int(parts[0])
-    seconds = int(parts[1])
-    frames = int(parts[2])
-    return minutes, seconds, frames
+from utils import PositionClassifier, frame_idx_to_timecode, get_default_device_name, get_video_fps_and_total_frames, setup_logging, load_image_features_from_disk, get_clip_indices_ending_at, timecode_to_frames, add_features_to_clip
 
 def load_source_splits(config_path, track_id, source_rider_id):
     """
@@ -29,14 +19,10 @@ def load_source_splits(config_path, track_id, source_rider_id):
 
     Returns:
         list: List of split timestamps in MM:SS:FF format.
-
-    Exits:
-        If no matching video is found, logs an error and exits with code 1.
     """
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
-    # Find videos matching the track_id and source_rider_id
     matching_videos = [
         video for video in config.get('videos', [])
         if video.get('trackId') == track_id and video.get('riderId') == source_rider_id
@@ -61,16 +47,18 @@ def main():
     parser = argparse.ArgumentParser(description="Find corresponding splits in target video based on source video splits.")
     parser.add_argument('config_path', type=str, help='Path to video_config.yaml file')
     parser.add_argument('image_feature_path', type=str, help="Path to directory of clip features")
+    parser.add_argument('output_file', type=str, help="Path to output file")
     parser.add_argument('--trackId', type=str, required=True, help='Track identifier')
     parser.add_argument('--sourceRiderId', type=str, required=True, help='Source rider identifier')
     parser.add_argument('--targetRiderId', type=str, required=True, help='Target rider identifier')
     parser.add_argument('--checkpoint_path', type=str, required=True, help='Path to the model checkpoint file')
     parser.add_argument('--device', type=str, default=get_default_device_name(), help='Device to use (cuda or cpu)')
     parser.add_argument('--F', type=int, default=50, help='Number of frames per clip')
-    parser.add_argument('--frame_rate', type=float, required=True, help='Frame rate of the videos (frames per second)')
     parser.add_argument('--stride', type=int, default=1, help='Stride for generating candidate split points in the target video')
     parser.add_argument('--threshold', type=float, default=0.5, help='Threshold for considering a target clip as a split')
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    parser.add_argument('--add_position_feature', action='store_true', default=True, help='Add position feature to clips')
+    parser.add_argument('--add_percent_completion_feature', action='store_true', default=False, help='Add percent completion feature to clips')
     args = parser.parse_args()
 
     setup_logging(args.log_level)
@@ -90,8 +78,7 @@ def main():
 
     # Convert timestamps to frame indices in the source video
     source_video_path = Path(source_video_dir) / f"{args.trackId}_{args.sourceRiderId}.mp4"
-    source_fps, _ = get_video_fps_and_total_frames(source_video_path)
-    # Ignore the first split
+    source_fps, source_total_frames = get_video_fps_and_total_frames(source_video_path)
     source_end_indices = [timecode_to_frames(ts, source_fps) for idx, ts in enumerate(source_timestamps) if idx != 0]
     logging.debug(f"source_end_indices={source_end_indices}")
 
@@ -111,9 +98,12 @@ def main():
         start_idx = indices[0]
         features = load_image_features_from_disk(args.trackId, args.sourceRiderId, start_idx, source_end_idx, args.image_feature_path)
         assert features.size > 0, f"Failed to load features for source split at {source_end_idx}"
-        # Pad features to match F
-        features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
-        source_samples[source_end_idx] = torch.from_numpy(features_with_pos).unsqueeze(0).to(args.device)
+        features_with_extras = add_features_to_clip(
+            features, indices, total_frames=source_total_frames,
+            add_position=args.add_position_feature,
+            add_percent_completion=args.add_percent_completion_feature
+        )
+        source_samples[source_end_idx] = torch.from_numpy(features_with_extras).unsqueeze(0).to(args.device)
     logging.info(f"Generated {len(source_samples)} source split clips")
 
     if not source_samples:
@@ -126,10 +116,13 @@ def main():
         indices = get_clip_indices_ending_at(end_idx, args.F)
         start_idx = indices[0]
         features = load_image_features_from_disk(args.trackId, args.targetRiderId, start_idx, end_idx, args.image_feature_path)
-        assert features.size > 0, f"Failed to load features for source split at {end_idx}"
-        # Pad features to match F
-        features_with_pos = np.concatenate([features, np.array(indices, dtype=np.float32)[:, None]], axis=1)
-        target_clip = torch.from_numpy(features_with_pos).unsqueeze(0).to(args.device)
+        assert features.size > 0, f"Failed to load features for target clip ending at {end_idx}"
+        features_with_extras = add_features_to_clip(
+            features, indices, total_frames=target_total_frames,
+            add_position=args.add_position_feature,
+            add_percent_completion=args.add_percent_completion_feature
+        )
+        target_clip = torch.from_numpy(features_with_extras).unsqueeze(0).to(args.device)
 
         for source_end_idx, source_clip in source_samples.items():
             with torch.no_grad():
@@ -160,12 +153,18 @@ def main():
     # Sort splits by source_end_idx to maintain order
     predicted_splits.sort(key=lambda x: x['source_end_idx'])
 
+    # Create output data with metadata
+    output_data = {
+        "trackId": args.trackId,
+        "sourceRiderId": args.sourceRiderId,
+        "targetRiderId": args.targetRiderId,
+        "predicted_splits": predicted_splits
+    }
 
-    # Save predicted splits
-    output_file = f"{args.trackId}_{args.sourceRiderId}_to_{args.targetRiderId}.json"
-    with open(output_file, 'w') as f:
-        json.dump(predicted_splits, f, indent=4)
-    logging.info(f"Saved {len(predicted_splits)} predicted splits to {output_file}")
+    # Save output data to JSON
+    with open(args.output_file, 'w') as f:
+        json.dump(output_data, f, indent=4)
+    logging.info(f"Saved {len(predicted_splits)} predicted splits to {args.output_file}")
 
 if __name__ == "__main__":
     main()

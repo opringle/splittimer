@@ -8,6 +8,18 @@ import logging
 from pathlib import Path
 import re
 
+def add_features_to_clip(image_features, frame_indices, total_frames=None, add_position=True, add_percent_completion=False):
+    features = image_features.copy()
+    if add_position:
+        position_feature = np.array(frame_indices, dtype=np.float32)[:, None]
+        features = np.concatenate([features, position_feature], axis=1)
+    if add_percent_completion:
+        if total_frames is None:
+            raise ValueError("total_frames must be provided to add percent completion feature")
+        percent_completion_feature = (np.array(frame_indices, dtype=np.float32) / total_frames)[:, None]
+        features = np.concatenate([features, percent_completion_feature], axis=1)
+    return features
+
 def get_default_device_name():
     return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
 

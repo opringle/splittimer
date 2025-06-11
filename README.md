@@ -1,9 +1,8 @@
 ## TODO
 
-- preview percent completion features and frame index features to ensure they're as expected
-- make training code 100% repeatable (data, model param initialization, optimizer init)
-- update/refactor find splits to reuse logic from upstream when adding features etc
+- optimize hyperparams on validation data
 - annotate more videos (ews runs too)
+- update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
 
 ```bash
 # best values
@@ -12,7 +11,6 @@
 ./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 ```
 
-- update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
 
 ## Prerequisites
 
@@ -89,10 +87,10 @@ python train_position_classifier.py training_data --bidirectional --compress_siz
 Find splits in a target video using the model
 
 ```bash
-python find_splits.py video_config.yaml video_features --trackId leogang_2025 --F 100 --sourceRiderId asa_vermette --targetRiderId jordan_williams --frame_rate=100 --checkpoint_path artifacts/alpha0_0_7_alpha_0_7_beta0_0_7_beta_0_7_frames_100_augmented_50/checkpoints/checkpoint_epoch_7.pth
+python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 100 --sourceRiderId asa_vermette --targetRiderId jordan_williams --add_position_feature --add_percent_completion_feature --checkpoint_path artifacts/alpha0_0_7_alpha_0_7_beta0_0_7_beta_0_7_frames_100_augmented_50_20250611_142150/checkpoints/checkpoint_epoch_3.pth
 ```
 
 View the predictions
 ```bash
-python view_predictions.py --predictions_json ./predicted_splits.json --trackId loudenvielle_2025 --sourceRiderId amaury_pierron --targetRiderId vali_holl
+python view_predictions.py --predictions_json ./predictions.json && open ./predictions_splits.html
 ```
