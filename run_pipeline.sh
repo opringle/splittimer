@@ -164,6 +164,7 @@ python train_position_classifier.py \
     --eval_interval $EVAL_INTERVAL \
     --artifacts_dir $ARTIFACTS_DIR \
     --checkpoint_interval 1 \
-    --seed $SEED
+    --seed $SEED \
+    --num_epochs 25
 
 echo "Pipeline completed"

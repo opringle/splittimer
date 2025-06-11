@@ -8,7 +8,15 @@
 # best values
 ./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100 --num_augmented 50
 
-./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
+./hyperparameter_search.sh \
+  --alpha_split_0_range 0.5:0.1:0.7 \
+  --alpha_range 0.5:0.1:0.7 \
+  --beta_split_0_range 0.5:0.1:0.7 \
+  --beta_range 0.5:0.1:0.7 \
+  --clip_length_range 50:50:150 \
+  --num_augmented_range 25:25:75 \
+  --add_position_feature_values true false \
+  --add_percent_completion_feature_values true true
 ```
 
 
