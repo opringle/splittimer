@@ -68,7 +68,6 @@ fi
 CONFIG="video_config.yaml"
 MAX_NEGATIVES=1
 SEED=1
-FEATURE_TYPE="individual"
 BATCH_SIZE=32
 BIDIRECTIONAL="--bidirectional"
 COMPRESS_SIZES=128
@@ -106,8 +105,7 @@ python preprocess_videos_into_samples.py \
     training_data \
     --F=$CLIP_LENGTH \
     --batch_size=$BATCH_SIZE \
-    --feature_type $FEATURE_TYPE \
-    --seed $SEED
+    --seed $SEED --add_position_feature --add_percent_completion_feature
 
 # Format alpha and beta values for directory name (replace . with _)
 ALPHA_SPLIT_0_DIR=${ALPHA_SPLIT_0//./_}

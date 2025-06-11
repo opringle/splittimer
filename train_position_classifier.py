@@ -93,22 +93,17 @@ def main():
     # Determine input shape from one batch
     clip1, clip2, _ = next(iter(train_loader))
     _, B, F, input_size = clip1.shape
+    logging.info(f"Each sample's clips have shape = {clip1.shape}")
 
-    # Choose model based on sequence length
-    if F == 1:
-        # Sequence features: use a simpler model without LSTM
-        model = SequencePositionClassifier(input_size, None, dropout=args.dropout).to(args.device)
-    else:
-        # Individual frame features: use LSTM-based model
-        model = PositionClassifier(
-            input_size=input_size,
-            hidden_size=args.hidden_size,
-            interaction_type=InteractionType(args.interaction_type),
-            bidirectional=args.bidirectional,
-            compress_sizes=compress_sizes,
-            post_lstm_sizes=post_lstm_sizes,
-            dropout=args.dropout
-        ).to(args.device)
+    model = PositionClassifier(
+        input_size=input_size,
+        hidden_size=args.hidden_size,
+        interaction_type=InteractionType(args.interaction_type),
+        bidirectional=args.bidirectional,
+        compress_sizes=compress_sizes,
+        post_lstm_sizes=post_lstm_sizes,
+        dropout=args.dropout
+    ).to(args.device)
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -119,8 +114,6 @@ def main():
         model_type = checkpoint['model_type']
         if model_type == 'position':
             model = PositionClassifier(**checkpoint['model_config']).to(args.device)
-        elif model_type == 'sequence':
-            model = SequencePositionClassifier(**checkpoint['model_config']).to(args.device)
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
         model.load_state_dict(checkpoint['model_state_dict'])

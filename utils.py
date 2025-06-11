@@ -266,134 +266,72 @@ def parse_clip_range(file_name, feature_type='individual', sequence_length=None)
             return int(match.group(1)), int(match.group(2))
     return None
 
-def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, feature_base_path, feature_type='individual', sequence_length=None):
-    """
-    Load image features from disk for a given track and rider.
-    
-    Args:
-        track_id (str): Track identifier
-        rider_id (str): Rider identifier
-        start_idx (int): Starting frame index (for individual features)
-        end_idx (int): Ending frame index
-        feature_base_path (str): Base path to feature files
-        feature_type (str): 'individual' or 'sequence'
-        sequence_length (int, optional): Sequence length for sequence features
-    
-    Returns:
-        np.ndarray: Features array; shape (F, feature_dim) for individual, (1, feature_dim) for sequence
-    """
-    if feature_type == 'individual':
-        F = end_idx - start_idx + 1
-        if F <= 0:
-            logging.error(f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
-            return np.array([])
+def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, feature_base_path):
+    F = end_idx - start_idx + 1
+    if F <= 0:
+        logging.error(f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
+        return np.array([])
 
-        feature_base_dir = Path(feature_base_path) / track_id / rider_id
-        if not feature_base_dir.exists():
-            logging.error(f"Feature directory {feature_base_dir} does not exist")
-            return np.array([])
+    feature_base_dir = Path(feature_base_path) / track_id / rider_id
+    if not feature_base_dir.exists():
+        logging.error(f"Feature directory {feature_base_dir} does not exist")
+        return np.array([])
 
-        clip_ranges = []
-        for file_path in feature_base_dir.glob("*_resnet50.npy"):
-            range_info = parse_clip_range(file_path.name, feature_type='individual')
-            if range_info:
-                clip_ranges.append((range_info[0], range_info[1], file_path))
-            else:
-                logging.error(f"Skipping invalid file name: {file_path.name}")
+    clip_ranges = []
+    for file_path in feature_base_dir.glob("*_resnet50.npy"):
+        range_info = parse_clip_range(file_path.name, feature_type='individual')
+        if range_info:
+            clip_ranges.append((range_info[0], range_info[1], file_path))
+        else:
+            logging.error(f"Skipping invalid file name: {file_path.name}")
 
-        if not clip_ranges:
-            logging.error(f"No valid individual feature files found in {feature_base_dir}")
-            return np.array([])
+    if not clip_ranges:
+        logging.error(f"No valid individual feature files found in {feature_base_dir}")
+        return np.array([])
 
-        overlapping_clips = [
-            (clip_start, clip_end, file_path)
-            for clip_start, clip_end, file_path in clip_ranges
-            if clip_start <= end_idx and clip_end >= start_idx
-        ]
+    overlapping_clips = [
+        (clip_start, clip_end, file_path)
+        for clip_start, clip_end, file_path in clip_ranges
+        if clip_start <= end_idx and clip_end >= start_idx
+    ]
 
-        if not overlapping_clips:
-            logging.error(f"No individual clips overlap with range [{start_idx}, {end_idx}]")
-            return np.array([])
+    if not overlapping_clips:
+        logging.error(f"No individual clips overlap with range [{start_idx}, {end_idx}]")
+        return np.array([])
 
-        features = []
-        for clip_start, clip_end, file_path in overlapping_clips:
-            try:
-                clip_features = np.load(file_path)
-                if clip_features.shape[1] != 2048:
-                    logging.error(f"Unexpected individual feature shape {clip_features.shape} in {file_path}")
-                    return np.array([])
-            except Exception as e:
-                logging.error(f"Error loading individual features from {file_path}: {e}")
+    features = []
+    for clip_start, clip_end, file_path in overlapping_clips:
+        try:
+            clip_features = np.load(file_path)
+            if clip_features.shape[1] != 2048:
+                logging.error(f"Unexpected individual feature shape {clip_features.shape} in {file_path}")
                 return np.array([])
-
-            extract_start = max(clip_start, start_idx)
-            extract_end = min(clip_end, end_idx)
-            rel_start = extract_start - clip_start
-            rel_end = extract_end - clip_start
-            if rel_start <= rel_end:
-                clip_features_subset = clip_features[rel_start:rel_end + 1]
-                features.append(clip_features_subset)
-
-        if not features:
-            logging.error(f"No individual features loaded for range [{start_idx}, {end_idx}]")
+        except Exception as e:
+            logging.error(f"Error loading individual features from {file_path}: {e}")
             return np.array([])
 
-        features = np.concatenate(features, axis=0)
-        if features.shape[0] != F:
-            logging.error(f"Loaded {features.shape[0]} individual frames, expected {F}")
-            return np.array([])
-        return features
+        extract_start = max(clip_start, start_idx)
+        extract_end = min(clip_end, end_idx)
+        rel_start = extract_start - clip_start
+        rel_end = extract_end - clip_start
+        if rel_start <= rel_end:
+            clip_features_subset = clip_features[rel_start:rel_end + 1]
+            features.append(clip_features_subset)
 
-    elif feature_type == 'sequence':
-        if sequence_length is None:
-            logging.error("sequence_length must be provided for sequence features")
-            return np.array([])
-
-        feature_base_dir = Path(feature_base_path) / track_id / rider_id
-        if not feature_base_dir.exists():
-            logging.error(f"Feature directory {feature_base_dir} does not exist")
-            return np.array([])
-
-        clip_ranges = []
-        for file_path in feature_base_dir.glob(f"*_iconv3d_F{sequence_length}.npy"):
-            range_info = parse_clip_range(file_path.name, feature_type='sequence', sequence_length=sequence_length)
-            if range_info:
-                clip_ranges.append((range_info[0], range_info[1], file_path))
-
-        if not clip_ranges:
-            logging.error(f"No valid sequence feature files found in {feature_base_dir} for F={sequence_length}")
-            return np.array([])
-
-        for clip_start, clip_end, file_path in clip_ranges:
-            if clip_start <= end_idx <= clip_end:
-                try:
-                    clip_features = np.load(file_path)
-                    rel_idx = end_idx - clip_start
-                    if rel_idx < 0 or rel_idx >= clip_features.shape[0]:
-                        logging.error(f"end_idx {end_idx} out of range for clip {clip_start} to {clip_end}")
-                        return np.array([])
-                    feature = clip_features[rel_idx]
-                    return feature[None, :]  # Shape (1, feature_dim)
-                except Exception as e:
-                    logging.error(f"Error loading sequence feature from {file_path}: {e}")
-                    return np.array([])
-
-        logging.error(f"No sequence feature file found for end_idx {end_idx}")
+    if not features:
+        logging.error(f"No individual features loaded for range [{start_idx}, {end_idx}]")
         return np.array([])
 
-    else:
-        logging.error(f"Unknown feature_type: {feature_type}")
+    features = np.concatenate(features, axis=0)
+    if features.shape[0] != F:
+        logging.error(f"Loaded {features.shape[0]} individual frames, expected {F}")
         return np.array([])
+    return features
 
 def get_clip_indices_ending_at(end_idx, F):
     start = max(0, end_idx - F + 1)
     clip_indices = list(range(start, end_idx + 1))
     assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"
-    # if len(clip_indices) < F:
-    #     # This just repeats the final frame
-    #     # print(f"clip_indices before = {clip_indices}")
-    #     clip_indices += [clip_indices[-1]] * (F - len(clip_indices))
-    #     # print(f"clip_indices after = {clip_indices}")
     return clip_indices[:F]
 
 def save_batch(save_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):
