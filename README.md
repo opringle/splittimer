@@ -1,12 +1,15 @@
 ## TODO
 
-- speed up script to generate samples
-- ensure training results are reproducible with random seeds
+- preview percent completion features and frame index features to ensure they're as expected
+- make training code 100% repeatable (data, model param initialization, optimizer init)
+- update/refactor find splits to reuse logic from upstream when adding features etc
 - annotate more videos (ews runs too)
 
 ```bash
 # best values
 ./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100 --num_augmented 50
+
+./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 ```
 
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
@@ -50,7 +53,7 @@ open ./split_times_inspection/index.html
 Generate positive and negative labels to train any model type
 
 ```bash
-python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5
+python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --seed 1
 ```
 
 Inspect the labels

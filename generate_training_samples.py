@@ -59,7 +59,7 @@ def generate_negative_samples(v1_idx, positive_v2_idx, v2_total_frames, clip_len
     
     return negative_labels, negative_indices, negative_metadata
 
-def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
+def generate_training_samples(seed, v1_indices, v1_labels, v1_rider_id, v1_track_id,
                              v2_indices, v2_labels, v2_rider_id, v2_track_id,
                              clip_length,
                              max_negatives_per_positive=10, num_augmented_positives_per_segment=5,
@@ -122,7 +122,7 @@ def generate_training_samples(v1_indices, v1_labels, v1_rider_id, v1_track_id,
         
         num_samples = min(num_augmented_positives_per_segment, len(possible_idx1))
 
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(seed=seed)
         # if first split concentrate probability near end of split (start)
         # else concentrate at both start and end
         alpha = alpha_split_0 if seg == 0 else alpha
@@ -232,6 +232,7 @@ def main():
             
             logging.debug(f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
             sample_labels, sample_indices, sample_metadata = generate_training_samples(
+                args.seed,
                 v1_indices, v1_labels, v1_rider_id, v1_track_id,
                 v2_indices, v2_labels, v2_rider_id, v2_track_id, args.clip_length,
                 max_negatives_per_positive=args.max_negatives_per_positive,
