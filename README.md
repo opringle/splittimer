@@ -1,13 +1,11 @@
 ## Thoughts
 
-
+What's next? Classifiers do poorly on the target task. Should I improve the data augmentation for the regressor to handle clips that don't overlap???
 
 ## TODO
 
-- find best hyperparams on validation data
-- visually insepct the predictions on a test sample
-- annotate more videos (ews runs too)
 - reframe as ML problem
+- annotate more videos (ews runs too)
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
 
 ```bash
@@ -96,7 +94,7 @@ rm -rf ./training_data/train && rm -rf ./training_data/val
 ```bash
 python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --add_position_feature --add_percent_completion_feature --batch_size=32 --log-level DEBUG
 
-python preprocess_videos_into_samples_regression.py training_data/training_metadata_regression.csv video_features training_data_regression --F=50 --add_position_feature --add_percent_completion_feature --batch_size=32 --log-level DEBUG
+python preprocess_videos_into_samples_regression.py training_data/training_metadata_regression.csv video_features training_data_regression --F=50 --batch_size=32 --add_position_feature --add_percent_completion_feature --log-level DEBUG
 ```
 
 Train and evaluate a model on the data
@@ -111,6 +109,10 @@ Find splits in a target video using the model
 
 ```bash
 python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth 
+
+python find_splits.py video_config.yaml video_features predictions.json --trackId loudenvielle_2025 --F 50 --sourceRiderId amaury_pierron --targetRiderId joe_breeden --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth 
+
+python find_splits_regression.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/experiment_20250612_061757/checkpoints/checkpoint_epoch_2.pth 
 ```
 
 View the predictions

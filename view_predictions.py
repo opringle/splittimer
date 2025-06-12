@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 import logging
+import shutil
 
 from utils import get_frame
 
@@ -57,9 +58,11 @@ def main():
         logging.warning("No predicted splits found in the JSON file")
         exit(0)
     
-    # Create directory for images
+    # Create directory for images and clean up if it already exists
     images_dir = json_path.parent / (json_path.stem + "_images")
-    images_dir.mkdir(exist_ok=True)
+    if images_dir.exists():
+        shutil.rmtree(images_dir)  # Remove existing directory and its contents
+    images_dir.mkdir()  # Create a new empty directory
     
     source_video_path = get_video_path(trackId, sourceRiderId)
     target_video_path = get_video_path(trackId, targetRiderId)
