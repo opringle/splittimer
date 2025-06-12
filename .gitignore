@@ -1,6 +1,5 @@
 processed_clips/
 downloaded_videos/
-training_data/
 predictions_images/
 .DS_Store
 split_times_inspection/
@@ -10,3 +9,5 @@ runs/
 artifacts/
 __pycache__/
 *.json
+*.npz
+*.csv
