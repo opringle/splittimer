@@ -57,7 +57,7 @@ def main():
     parser.add_argument('--stride', type=int, default=1, help='Stride for generating candidate split points in the target video')
     parser.add_argument('--threshold', type=float, default=0.5, help='Threshold for considering a target clip as a split')
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-    parser.add_argument('--add_position_feature', action='store_true', default=True, help='Add position feature to clips')
+    parser.add_argument('--add_position_feature', action='store_true', default=False, help='Add position feature to clips')
     parser.add_argument('--add_percent_completion_feature', action='store_true', default=False, help='Add percent completion feature to clips')
     args = parser.parse_args()
 

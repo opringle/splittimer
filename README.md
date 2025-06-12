@@ -1,15 +1,5 @@
 ## Thoughts
 
-Predicting the offset between the same split index in 2 different clips (instead of a binary label) gives more signal.
-
-I think the offset should be less than the clip length for all samples. If there is no overlap between 2 clips then it is not possible to predict the offset.
-
-For the frame index of each split in video 1:
-    Find the frame index of the same split in video 2
-    For each value in range(video_2_frame_idx - F, video_2_frame_idx + F):
-        Create a sample.
-
-In this case, when generating samples I would do so around matching indices. For example, align the frames then iterate in both directions generating labels.
 
 
 ## TODO
@@ -21,8 +11,8 @@ In this case, when generating samples I would do so around matching indices. For
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
 
 ```bash
-# best values
-./run_pipeline.sh --alpha_split_0 0.7 --alpha 0.7 --beta_split_0 0.7 --beta 0.7 --clip_length 100 --num_augmented 50
+# best combo: step 7 (epoch 8) 0.905 macro F1 score on validation data
+./run_pipeline.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 
 ./hyperparameter_search.sh \
   --alpha_split_0_range 0.5:0.1:0.7 \
@@ -114,13 +104,13 @@ Train and evaluate a model on the data
 ```bash
 python train_position_classifier.py training_data --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --dropout 0.5 --eval_interval 1 --checkpoint_interval 1
 
-python train_position_classifier_regression.py training_data_regression --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --dropout 0.5 --eval_interval 1 --checkpoint_interval 1
+python train_position_classifier_regression.py training_data_regression --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --eval_interval 1 --dropout 0.5 --checkpoint_interval 1
 ```
 
 Find splits in a target video using the model
 
 ```bash
-python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 100 --sourceRiderId asa_vermette --targetRiderId jordan_williams --add_position_feature --add_percent_completion_feature --checkpoint_path artifacts/alpha0_0_7_alpha_0_7_beta0_0_7_beta_0_7_frames_100_augmented_50_20250611_142150/checkpoints/checkpoint_epoch_3.pth
+python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth 
 ```
 
 View the predictions
