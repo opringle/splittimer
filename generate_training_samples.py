@@ -18,9 +18,7 @@ def get_video_metadata(video_path, splits, rider_id, track_id):
     split_indices_raw = [timecode_to_frames(tc, fps) for tc in splits]
     split_indices = []
     for idx in split_indices_raw:
-        assert (
-            idx < total_frames
-        ), f"Split index {idx} exceeds total frames {total_frames} for video {video_path}"
+        assert idx < total_frames, f"Split index {idx} exceeds total frames {total_frames} for video {video_path}"
         assert idx >= 0, f"Split index {idx} is negative for video {video_path}"
         split_indices.append(idx)
 
@@ -44,8 +42,7 @@ def generate_negative_samples(
 ):
     if v2_min_idx > v2_total_frames - 1:
         logging.warning(
-            f"Cannot generate negative samples: v2_min_idx {v2_min_idx} > v2_total_frames - 1 {v2_total_frames - 1}"
-        )
+            f"Cannot generate negative samples: v2_min_idx {v2_min_idx} > v2_total_frames - 1 {v2_total_frames - 1}")
         return [], [], []
 
     negative_labels = []
@@ -58,10 +55,8 @@ def generate_negative_samples(
         v2_idx = random.randint(v2_min_idx, v2_total_frames - 1)
         # For split points, check if v2_idx is the positive split index
         if split_number is not None and v2_frame_idx_to_split_number is not None:
-            is_false_negative = (
-                v2_idx in v2_frame_idx_to_split_number
-                and v2_frame_idx_to_split_number[v2_idx] == split_number
-            )
+            is_false_negative = v2_idx in v2_frame_idx_to_split_number and v2_frame_idx_to_split_number[
+                v2_idx] == split_number
             if is_false_negative:
                 attempts += 1
                 continue
@@ -101,8 +96,7 @@ def generate_training_samples(
     v1_split_indices = v1_indices[v1_labels == 1.0]
     v2_split_indices = v2_indices[v2_labels == 1.0]
     v2_frame_idx_to_split_number = {
-        int(idx): i for i, idx in enumerate(v2_split_indices)
-    }
+        int(idx): i for i, idx in enumerate(v2_split_indices)}
     logging.debug(f"Found {len(v1_split_indices)} splits")
 
     assert len(v1_split_indices) != 0, "No split points found in v1_split_indices"
@@ -139,18 +133,16 @@ def generate_training_samples(
         sample_metadata.append({**metadata_base, "sample_type": "split"})
 
         # Generate negative samples for split points
-        negative_labels, negative_indices, negative_metadata = (
-            generate_negative_samples(
-                v1_split_idx,
-                v2_split_idx,
-                v2_total_frames,
-                clip_length,
-                max_negatives_per_positive,
-                metadata_base,
-                v2_min_idx,
-                v2_frame_idx_to_split_number,
-                split_number,
-            )
+        negative_labels, negative_indices, negative_metadata = generate_negative_samples(
+            v1_split_idx,
+            v2_split_idx,
+            v2_total_frames,
+            clip_length,
+            max_negatives_per_positive,
+            metadata_base,
+            v2_min_idx,
+            v2_frame_idx_to_split_number,
+            split_number,
         )
         sample_labels.extend(negative_labels)
         sample_indices.extend(negative_indices)
@@ -166,7 +158,8 @@ def generate_training_samples(
 
         possible_idx1 = list(range(v1_start_seg, v1_end_seg + 1))
 
-        num_samples = min(num_augmented_positives_per_segment, len(possible_idx1))
+        num_samples = min(num_augmented_positives_per_segment,
+                          len(possible_idx1))
 
         rng = np.random.default_rng(seed=seed)
         # if first split concentrate probability near end of split (start)
@@ -176,39 +169,35 @@ def generate_training_samples(
         relative_positions = rng.beta(a=alpha, b=beta, size=num_samples)
         min_idx = possible_idx1[0]
         max_idx = possible_idx1[-1]
-        selected_idx1 = [
-            int(min_idx + p * (max_idx - min_idx)) for p in relative_positions
-        ]
-        selected_idx1 = [min(max(idx, min_idx), max_idx) for idx in selected_idx1]
+        selected_idx1 = [int(min_idx + p * (max_idx - min_idx))
+                         for p in relative_positions]
+        selected_idx1 = [min(max(idx, min_idx), max_idx)
+                         for idx in selected_idx1]
 
         for idx1 in selected_idx1:
-            fraction_through_v1_segment = (idx1 - v1_start_seg) / (
-                v1_end_seg - v1_start_seg
-            )
-            idx2_float = v2_start_seg + fraction_through_v1_segment * (
-                v2_end_seg - v2_start_seg
-            )
+            fraction_through_v1_segment = (
+                idx1 - v1_start_seg) / (v1_end_seg - v1_start_seg)
+            idx2_float = v2_start_seg + fraction_through_v1_segment * \
+                (v2_end_seg - v2_start_seg)
             idx2 = int(round(idx2_float))
             if idx2 < v2_start_seg or idx2 > v2_end_seg:
                 raise Exception(
-                    f"idx2 {idx2} is out of range [{v2_start_seg}, {v2_end_seg}]"
-                )
+                    f"idx2 {idx2} is out of range [{v2_start_seg}, {v2_end_seg}]")
 
             sample_labels.append(1.0)
             sample_indices.append((idx1, idx2))
-            sample_metadata.append({**metadata_base, "sample_type": "augmented"})
+            sample_metadata.append(
+                {**metadata_base, "sample_type": "augmented"})
 
             # Generate negative samples for augmented positives
-            negative_labels, negative_indices, negative_metadata = (
-                generate_negative_samples(
-                    idx1,
-                    idx2,
-                    v2_total_frames,
-                    clip_length,
-                    max_negatives_per_positive,
-                    metadata_base,
-                    v2_min_idx,
-                )
+            negative_labels, negative_indices, negative_metadata = generate_negative_samples(
+                idx1,
+                idx2,
+                v2_total_frames,
+                clip_length,
+                max_negatives_per_positive,
+                metadata_base,
+                v2_min_idx,
             )
             sample_labels.extend(negative_labels)
             sample_indices.extend(negative_indices)
@@ -219,11 +208,9 @@ def generate_training_samples(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate training metadata for all rider combinations on each track."
-    )
-    parser.add_argument(
-        "--config", type=str, required=True, help="Path to YAML config file"
-    )
+        description="Generate training metadata for all rider combinations on each track.")
+    parser.add_argument("--config", type=str, required=True,
+                        help="Path to YAML config file")
     parser.add_argument(
         "--clip-length",
         type=int,
@@ -297,13 +284,13 @@ def main():
 
     if args.ignore_first_split:
         logging.info(
-            "Ignoring the first split for generating positive samples at split points"
-        )
+            "Ignoring the first split for generating positive samples at split points")
 
     if args.seed is not None:
         random.seed(args.seed)
         np.random.seed(args.seed)
-        logging.info(f"Set random seed to {args.seed} for reproducible track splitting")
+        logging.info(
+            f"Set random seed to {args.seed} for reproducible track splitting")
 
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
@@ -315,69 +302,51 @@ def main():
 
     track_ids = list(track_videos.keys())
     if len(track_ids) < 2:
-        logging.error(f"Need at least two tracks for splitting, found {len(track_ids)}")
+        logging.error(
+            f"Need at least two tracks for splitting, found {len(track_ids)}")
         exit(1)
     random.shuffle(track_ids)
     num_val_tracks = max(1, int(args.val_ratio * len(track_ids)))
     val_tracks = track_ids[:num_val_tracks]
     val_tracks_set = set(val_tracks)
     logging.info(
-        f"Assigned {len(val_tracks)} tracks to validation: {', '.join(val_tracks)}"
-    )
+        f"Assigned {len(val_tracks)} tracks to validation: {', '.join(val_tracks)}")
     logging.info(
-        f"Assigned {len(track_ids) - len(val_tracks)} tracks to training: {', '.join(set(track_ids) - val_tracks_set)}"
-    )
+        f"Assigned {len(track_ids) - len(val_tracks)} tracks to training: {', '.join(set(track_ids) - val_tracks_set)}")
 
     dfs = []
     for track_id, track_videos_list in track_videos.items():
         if len(track_videos_list) < 2:
             logging.warning(
-                f"Need at least two riders for track {track_id}, found {len(track_videos_list)}, skipping."
-            )
+                f"Need at least two riders for track {track_id}, found {len(track_videos_list)}, skipping.")
             continue
         set_type = "val" if track_id in val_tracks_set else "train"
         video_pairs = list(itertools.permutations(track_videos_list, 2))
         logging.info(
-            f"Found {len(track_videos_list)} riders for track {track_id}, generating samples for {len(video_pairs)} pairs"
-        )
+            f"Found {len(track_videos_list)} riders for track {track_id}, generating samples for {len(video_pairs)} pairs")
         for video1, video2 in video_pairs:
             rider_id1 = video1["riderId"]
             rider_id2 = video2["riderId"]
-            video_path1 = (
-                Path("downloaded_videos")
-                / track_id
-                / rider_id1
-                / f"{track_id}_{rider_id1}.mp4"
-            )
-            video_path2 = (
-                Path("downloaded_videos")
-                / track_id
-                / rider_id2
-                / f"{track_id}_{rider_id2}.mp4"
-            )
+            video_path1 = Path("downloaded_videos") / track_id / \
+                rider_id1 / f"{track_id}_{rider_id1}.mp4"
+            video_path2 = Path("downloaded_videos") / track_id / \
+                rider_id2 / f"{track_id}_{rider_id2}.mp4"
 
-            assert (
-                video_path1.exists()
+            assert video_path1.exists(
             ), f"Video file {video_path1} does not exist, skipping pair {rider_id1} and {rider_id2}"
-            assert (
-                video_path2.exists()
+            assert video_path2.exists(
             ), f"Video file {video_path2} does not exist, skipping pair {rider_id1} and {rider_id2}"
 
             v1_indices, v1_labels, v1_rider_id, v1_track_id = get_video_metadata(
-                str(video_path1), video1["splits"], rider_id1, track_id
-            )
+                str(video_path1), video1["splits"], rider_id1, track_id)
             v2_indices, v2_labels, v2_rider_id, v2_track_id = get_video_metadata(
-                str(video_path2), video2["splits"], rider_id2, track_id
-            )
+                str(video_path2), video2["splits"], rider_id2, track_id)
 
             # do not generate augmented samples in validation
-            num_augmented_positives_per_segment = (
-                args.num_augmented_positives_per_segment if set_type != "val" else 0
-            )
+            num_augmented_positives_per_segment = args.num_augmented_positives_per_segment if set_type != "val" else 0
 
             logging.debug(
-                f"Generating training samples for {v1_rider_id} and {v2_rider_id}"
-            )
+                f"Generating training samples for {v1_rider_id} and {v2_rider_id}")
             sample_labels, sample_indices, sample_metadata = generate_training_samples(
                 args.seed,
                 v1_indices,
@@ -422,8 +391,7 @@ def main():
         os.makedirs(training_data_output_path, exist_ok=True)
         output_filename = "training_metadata.csv"
         training_data_file_path = os.path.join(
-            training_data_output_path, output_filename
-        )
+            training_data_output_path, output_filename)
         df.to_csv(training_data_file_path, index=False)
         logging.info(
             f"Saved {len(df)} training metadata to {training_data_file_path}. {df['set'].value_counts().get('train', 0)} training, {df['set'].value_counts().get('val', 0)} validation"

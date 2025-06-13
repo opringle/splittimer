@@ -1,6 +1,64 @@
 ## Thoughts
 
-What's next? Classifiers do poorly on the target task. Should I improve the data augmentation for the regressor to handle clips that don't overlap???
+What's the next step?
+
+I should be able to evaluate end to end on the actual task - no matter how I frame the ML problem. I should refactor the code to handle this with flexibility for multiple approaches.
+
+Step 1: download gopro videos (universal)
+Step 2: annotate splits for each trackId and riderId (universal)
+Step 3: Generate sample indices (should use a class)
+
+```python
+# generate_training_samples.py
+train_tracks = ...
+val_tracks = ...
+dfs = []
+preprocessor = get_preprocessor(args.preprocessor_type)
+for track_id, track_videos_list in track_videos.items():
+  samples = preprocessor.generate_samples(track_videos_list)
+  dfs.append(pd.DataFrame(samples))
+df = pd.concat(dfs, axis=0)
+...
+
+# extract_clip_features.py
+preprocessor = get_preprocessor(args.preprocessor_type)
+for gopro_video_path in gopro_videos:
+  preprocessor.write_video_features(gopro_video_path, output_feature_path)
+
+# preprocess_videos_into_samples.py
+df = pd.read_csv(args.csv_path)
+preprocessor = get_preprocessor(args.preprocessor_type)
+sample_metadatas = []
+idx = 0
+for sample_metadata in tqdm(df.itertuples(), total=len(df), desc="Generating samples"):
+  if idx >= args.batch_size or idx == len(df) - 1:
+    preprocessor.write_sample(sample_metadatas)
+    sample_metadatas = [sample_metadata]
+  else:
+    sample_metadatas.append(sample_metadata)
+  idx += 1
+
+# train_model.py
+model_cls = get_model_class(args.model_type)
+if args.resume_from and os.path.isfile(args.resume_from):
+  model_cls.load(args.resume_from)
+else:
+  model = model_cls()
+model.train(train_dir, val_dir)
+
+# validate_model.py
+predictions = []
+for videoPath in args.validation_videos:
+  trackId, riderId = ...
+  true_split_timecodes = load_splits_from_config(trackId, riderId)
+  predicted_split_timecodes = model.predict(trackId: str, videoPath: str)
+  predictions.append({'trackId': trackId, 'riderId': riderId, 'true_split_timecodes': true_split_timecodes, 'predicted_split_timecodes': predicted_split_timecodes})
+
+eval_metrics = compute_eval_metrics(predictions)
+results = {'metrics': eval_metrics, 'predictions': predictions}
+```
+
+Classifiers do poorly on the target task. Should I improve the data augmentation for the regressor to handle clips that don't overlap???
 
 ## TODO
 
