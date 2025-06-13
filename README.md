@@ -4,6 +4,7 @@ What's next? Classifiers do poorly on the target task. Should I improve the data
 
 ## TODO
 
+- add option to generate samples that put val fraction runs in the validation set
 - reframe as ML problem
 - annotate more videos (ews runs too)
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
@@ -22,7 +23,6 @@ What's next? Classifiers do poorly on the target task. Should I improve the data
   --add_position_feature_values true false \
   --add_percent_completion_feature_values true false
 ```
-
 
 ## Prerequisites
 
@@ -63,19 +63,19 @@ open ./split_times_inspection/index.html
 Generate positive and negative labels to train any model type
 
 ```bash
-python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --seed 1
+python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --seed 1 --validation-mode riders --val_ratio 0.4
 
-python generate_training_samples_regression.py --config video_config.yaml --clip-length 50 --ignore_first_split --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --seed 1
+python generate_training_samples_regression.py --config video_config.yaml --clip-length 50 --num_non_overlapping_samples 50 --ignore_first_split --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --seed 1
 ```
 
 Inspect the labels
 
 ```bash
 python inspect_training_data.py training_data/training_metadata.csv --num_samples=15 --sample_types augmented && \
-open ./training_data_inspection/index.html 
+open ./training_data_inspection/index.html
 
 python inspect_training_data_regression.py training_data/training_metadata_regression.csv --num_samples=15 --sample_types split_offset && \
-open ./training_data_inspection/index.html 
+open ./training_data_inspection/index.html
 ```
 
 Compute features for each frame index and save to disk
@@ -88,13 +88,14 @@ Preprocess videos into training samples and save to disk
 
 ```bash
 rm -rf ./training_data/train && rm -rf ./training_data/val
-```
 
+rm -rf ./training_data_regression
+```
 
 ```bash
 python preprocess_videos_into_samples.py training_data/training_metadata.csv video_features training_data --F=50 --add_position_feature --add_percent_completion_feature --batch_size=32 --log-level DEBUG
 
-python preprocess_videos_into_samples_regression.py training_data/training_metadata_regression.csv video_features training_data_regression --F=50 --batch_size=32 --add_position_feature --add_percent_completion_feature --log-level DEBUG
+python preprocess_videos_into_samples_regression.py training_data/training_metadata_regression.csv video_features training_data_regression --F=50 --batch_size=32 --log-level DEBUG
 ```
 
 Train and evaluate a model on the data
@@ -108,14 +109,15 @@ python train_position_classifier_regression.py training_data_regression --bidire
 Find splits in a target video using the model
 
 ```bash
-python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth 
+python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth
 
-python find_splits.py video_config.yaml video_features predictions.json --trackId loudenvielle_2025 --F 50 --sourceRiderId amaury_pierron --targetRiderId joe_breeden --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth 
+python find_splits.py video_config.yaml video_features predictions.json --trackId loudenvielle_2025 --F 50 --sourceRiderId amaury_pierron --targetRiderId joe_breeden --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth
 
-python find_splits_regression.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/experiment_20250612_061757/checkpoints/checkpoint_epoch_2.pth 
+python find_splits_regression.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/experiment_20250612_061757/checkpoints/checkpoint_epoch_2.pth
 ```
 
 View the predictions
+
 ```bash
 python view_predictions.py --predictions_json ./predictions.json && open ./predictions_splits.html
 ```

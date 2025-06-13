@@ -9,5 +9,6 @@ runs/
 artifacts/
 __pycache__/
 *.json
+!.vscode/settings.json
 *.npz
 *.csv
