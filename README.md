@@ -121,18 +121,45 @@ open ./split_times_inspection/index.html
 Generate positive and negative labels to train any model type
 
 ```bash
-python generate_training_samples.py --config video_config.yaml --clip-length 50 --ignore_first_split --max_negatives_per_positive 1 --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --seed 1 --validation-mode riders --val_ratio 0.4
+# classification
+python generate_training_samples.py \
+    --config video_config.yaml \
+    --val_ratio 0.2 \
+    --log-level INFO \
+    --seed 42 \
+    --output_path training_data/metadata.csv \
+    --preprocessor_type classifier \
+    --clip-length 50 \
+    --alpha_split_0 0.5 \
+    --alpha 0.5 \
+    --beta_split_0 0.5 \
+    --beta 0.5 \
+    --max_negatives_per_positive 1 \
+    --num_augmented_positives_per_segment 50 \
+    --ignore_first_split
 
-python generate_training_samples_regression.py --config video_config.yaml --clip-length 50 --num_non_overlapping_samples 50 --ignore_first_split --num_augmented_positives_per_segment 50 --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --seed 1
+# regression
+python generate_training_samples.py \
+    --config video_config.yaml \
+    --val_ratio 0.2 \
+    --log-level INFO \
+    --seed 42 \
+    --output_path training_data/metadata_regression.csv \
+    --preprocessor_type regressor \
+    --clip-length 50 \
+    --alpha_split_0 0.5 \
+    --alpha 0.5 \
+    --beta_split_0 0.5 \
+    --beta 0.5 \
+    --num_augmented_positives_per_segment 50 \
+    --num_non_overlapping_samples_per_positive 50 \
+    --ignore_first_split
 ```
 
 Inspect the labels
 
 ```bash
 python inspect_training_data.py training_data/training_metadata.csv --num_samples=15 --sample_types augmented && \
-open ./training_data_inspection/index.html
-
-python inspect_training_data_regression.py training_data/training_metadata_regression.csv --num_samples=15 --sample_types split_offset && \
 open ./training_data_inspection/index.html
 ```
 

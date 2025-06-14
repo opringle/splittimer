@@ -1,5 +1,6 @@
 from enum import Enum
 import math
+import random
 import cv2
 import torch
 import torch.nn as nn
@@ -8,6 +9,24 @@ import logging
 from pathlib import Path
 import re
 
+
+def get_video_metadata(video_path, splits, rider_id, track_id):
+    fps, total_frames = get_video_fps_and_total_frames(video_path)
+
+    split_indices_raw = [timecode_to_frames(tc, fps) for tc in splits]
+    split_indices = []
+    for idx in split_indices_raw:
+        assert idx < total_frames, f"Split index {idx} exceeds total frames {total_frames} for video {video_path}"
+        assert idx >= 0, f"Split index {idx} is negative for video {video_path}"
+        split_indices.append(idx)
+
+    frame_indices = np.arange(total_frames)
+    labels = np.zeros(total_frames)
+    for idx in split_indices:
+        labels[idx] = 1.0
+    return frame_indices, labels, rider_id, track_id
+
+
 def add_features_to_clip(image_features, frame_indices, total_frames=None, add_position=True, add_percent_completion=False):
     features = image_features.copy()
     if add_position:
@@ -15,13 +34,18 @@ def add_features_to_clip(image_features, frame_indices, total_frames=None, add_p
         features = np.concatenate([features, position_feature], axis=1)
     if add_percent_completion:
         if total_frames is None:
-            raise ValueError("total_frames must be provided to add percent completion feature")
-        percent_completion_feature = (np.array(frame_indices, dtype=np.float32) / total_frames)[:, None]
-        features = np.concatenate([features, percent_completion_feature], axis=1)
+            raise ValueError(
+                "total_frames must be provided to add percent completion feature")
+        percent_completion_feature = (
+            np.array(frame_indices, dtype=np.float32) / total_frames)[:, None]
+        features = np.concatenate(
+            [features, percent_completion_feature], axis=1)
     return features
+
 
 def get_default_device_name():
     return "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+
 
 def get_video_fps_and_total_frames(video_path):
     cap = cv2.VideoCapture(video_path)
@@ -31,6 +55,7 @@ def get_video_fps_and_total_frames(video_path):
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
     return fps, total_frames
+
 
 def get_frame(video_path, frame_idx):
     """
@@ -48,51 +73,67 @@ def get_frame(video_path, frame_idx):
     else:
         raise ValueError(f"Cannot read frame {frame_idx} from {video_path}")
 
+
 def timecode_to_frames(timecode, fps):
     parts = timecode.split(':')
     if len(parts) != 3:
-        raise ValueError(f"Timecode must be in MM:SS:FF format, got '{timecode}'")
+        raise ValueError(
+            f"Timecode must be in MM:SS:FF format, got '{timecode}'")
     MM, SS, FF = map(int, parts)
-    time_in_seconds = MM * 60 + SS + FF / 24.0  # Convert to seconds, based on 24 FPS annotation in devinci resolve
-    frame_index = int(time_in_seconds * fps)    # Frame index in the actual video
+    # Convert to seconds, based on 24 FPS annotation in devinci resolve
+    time_in_seconds = MM * 60 + SS + FF / 24.0
+    # Frame index in the actual video
+    frame_index = int(time_in_seconds * fps)
     return frame_index
+
 
 def frame_idx_to_timecode(frame_index, fps):
     """
     Convert a frame index to a timecode in "MM:SS:FF" format based on the video's native frame rate.
     The timecode reflects how it would appear in DaVinci Resolve when loaded at 24.0 FPS.
-    
+
     Args:
         frame_index (int): The frame index in the video.
         fps (float): The native frame rate of the video.
-    
+
     Returns:
         str: The timecode in "MM:SS:FF" format.
     """
     # Calculate time in seconds from frame index
     time_in_seconds = frame_index / fps
-    
+
     # Extract minutes
     MM = math.floor(time_in_seconds / 60)
-    
+
     # Extract remaining seconds
     remaining_seconds = time_in_seconds - MM * 60
     SS = math.floor(remaining_seconds)
-    
+
     # Extract fractional seconds and convert to frames at 24 FPS
     fractional_seconds = remaining_seconds - SS
     FF = math.floor(fractional_seconds * 24)
-    
+
     # Format as MM:SS:FF with leading zeros
     timecode = f"{MM:02d}:{SS:02d}:{FF:02d}"
     return timecode
 
+
+def setup_seed(seed):
+    if seed:
+        random.seed(seed)
+        np.random.seed(seed)
+        logging.info(f"Set random seed to {seed}")
+
+
 def setup_logging(log_level="INFO"):
-    logging.basicConfig(level=getattr(logging, log_level.upper()), format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=getattr(logging, log_level.upper()),
+                        format='%(levelname)s: %(message)s')
+
 
 class InteractionType(Enum):
     DOT = 'dot'
     MLP = 'mlp'
+
 
 class PositionClassifier(nn.Module):
     def __init__(self, input_size, hidden_size, interaction_type=InteractionType.MLP, bidirectional=False, compress_sizes=[], post_lstm_sizes=[], dropout=0.0):
@@ -104,7 +145,7 @@ class PositionClassifier(nn.Module):
         self.post_lstm_sizes = post_lstm_sizes
         self.dropout = dropout
         self.interaction_type = interaction_type
-        
+
         # Compression layers (same for both interaction types)
         if compress_sizes:
             layers = []
@@ -120,10 +161,11 @@ class PositionClassifier(nn.Module):
         else:
             self.compression = nn.Identity()
             lstm_input_size = input_size
-        
+
         # LSTM layer (same for both interaction types)
-        self.lstm = nn.LSTM(lstm_input_size, hidden_size, batch_first=True, bidirectional=bidirectional)
-        
+        self.lstm = nn.LSTM(lstm_input_size, hidden_size,
+                            batch_first=True, bidirectional=bidirectional)
+
         # Configure interaction-specific layers
         if self.interaction_type == InteractionType.MLP:
             lstm_output_size = 2 * hidden_size if bidirectional else hidden_size
@@ -152,7 +194,7 @@ class PositionClassifier(nn.Module):
         # Compress input clips
         compressed_clip1 = self.compression(clip1)
         compressed_clip2 = self.compression(clip2)
-        
+
         # Get LSTM outputs
         if self.bidirectional:
             _, (h_n, _) = self.lstm(compressed_clip1)
@@ -164,7 +206,7 @@ class PositionClassifier(nn.Module):
             h1 = h1[-1]
             _, (h2, _) = self.lstm(compressed_clip2)
             h2 = h2[-1]
-        
+
         # Handle interaction based on type
         if self.interaction_type == InteractionType.MLP:
             combined = torch.cat((h1, h2), dim=1)
@@ -199,11 +241,14 @@ class PositionClassifier(nn.Module):
     def load(cls, path, device):
         checkpoint = torch.load(path, map_location=device)
         model_config = checkpoint['model_config']
-        interaction_type = InteractionType(model_config.pop('interaction_type'))
-        model = cls(interaction_type=interaction_type, **model_config).to(device)
+        interaction_type = InteractionType(
+            model_config.pop('interaction_type'))
+        model = cls(interaction_type=interaction_type,
+                    **model_config).to(device)
         model.load_state_dict(checkpoint['model_state_dict'])
         return model, checkpoint['epoch'], checkpoint['optimizer_state_dict']
-    
+
+
 class SequencePositionClassifier(nn.Module):
     def __init__(self, input_size, hidden_sizes, dropout=0.0):
         super().__init__()
@@ -251,18 +296,20 @@ class SequencePositionClassifier(nn.Module):
         model.load_state_dict(checkpoint['model_state_dict'])
         return model, checkpoint['epoch'], checkpoint['optimizer_state_dict']
 
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def parse_clip_range(file_name, feature_type='individual', sequence_length=None):
     """
     Parse the frame range from a feature file name based on feature type.
-    
+
     Args:
         file_name (str): Name of the feature file
         feature_type (str): 'individual' or 'sequence'
         sequence_length (int, optional): Length of sequence for sequence features
-    
+
     Returns:
         tuple: (start_frame, end_frame) or None if parsing fails
     """
@@ -273,15 +320,18 @@ def parse_clip_range(file_name, feature_type='individual', sequence_length=None)
     elif feature_type == 'sequence':
         if sequence_length is None:
             return None
-        match = re.match(r"(\d+)_to_(\d+)_iconv3d_F{}.npy".format(sequence_length), file_name)
+        match = re.match(
+            r"(\d+)_to_(\d+)_iconv3d_F{}.npy".format(sequence_length), file_name)
         if match:
             return int(match.group(1)), int(match.group(2))
     return None
 
+
 def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, feature_base_path):
     F = end_idx - start_idx + 1
     if F <= 0:
-        logging.error(f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
+        logging.error(
+            f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
         return np.array([])
 
     feature_base_dir = Path(feature_base_path) / track_id / rider_id
@@ -291,14 +341,16 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
 
     clip_ranges = []
     for file_path in feature_base_dir.glob("*_resnet50.npy"):
-        range_info = parse_clip_range(file_path.name, feature_type='individual')
+        range_info = parse_clip_range(
+            file_path.name, feature_type='individual')
         if range_info:
             clip_ranges.append((range_info[0], range_info[1], file_path))
         else:
             logging.error(f"Skipping invalid file name: {file_path.name}")
 
     if not clip_ranges:
-        logging.error(f"No valid individual feature files found in {feature_base_dir}")
+        logging.error(
+            f"No valid individual feature files found in {feature_base_dir}")
         return np.array([])
 
     overlapping_clips = [
@@ -308,7 +360,8 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
     ]
 
     if not overlapping_clips:
-        logging.error(f"No individual clips overlap with range [{start_idx}, {end_idx}]")
+        logging.error(
+            f"No individual clips overlap with range [{start_idx}, {end_idx}]")
         return np.array([])
 
     features = []
@@ -316,10 +369,12 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
         try:
             clip_features = np.load(file_path)
             if clip_features.shape[1] != 2048:
-                logging.error(f"Unexpected individual feature shape {clip_features.shape} in {file_path}")
+                logging.error(
+                    f"Unexpected individual feature shape {clip_features.shape} in {file_path}")
                 return np.array([])
         except Exception as e:
-            logging.error(f"Error loading individual features from {file_path}: {e}")
+            logging.error(
+                f"Error loading individual features from {file_path}: {e}")
             return np.array([])
 
         extract_start = max(clip_start, start_idx)
@@ -331,26 +386,32 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
             features.append(clip_features_subset)
 
     if not features:
-        logging.error(f"No individual features loaded for range [{start_idx}, {end_idx}]")
+        logging.error(
+            f"No individual features loaded for range [{start_idx}, {end_idx}]")
         return np.array([])
 
     features = np.concatenate(features, axis=0)
     if features.shape[0] != F:
-        logging.error(f"Loaded {features.shape[0]} individual frames, expected {F}")
+        logging.error(
+            f"Loaded {features.shape[0]} individual frames, expected {F}")
         return np.array([])
     return features
+
 
 def get_clip_indices_ending_at(end_idx, F):
     start = max(0, end_idx - F + 1)
     clip_indices = list(range(start, end_idx + 1))
-    assert len(clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"
+    assert len(
+        clip_indices) == F, f"clip indices length {len(clip_indices)} != F ({F})"
     return clip_indices[:F]
+
 
 def save_batch(save_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):
     batch_clip_1_tensor = np.stack(batch_clip1s, axis=0)
     batch_clip_2_tensor = np.stack(batch_clip2s, axis=0)
     batch_label_tensor = np.array(batch_labels)
-    logging.debug(f"Saving batch {batch_count}. batch_clip_1_tensor.shape={batch_clip_1_tensor.shape} batch_clip_2_tensor.shape={batch_clip_2_tensor.shape}")
+    logging.debug(
+        f"Saving batch {batch_count}. batch_clip_1_tensor.shape={batch_clip_1_tensor.shape} batch_clip_2_tensor.shape={batch_clip_2_tensor.shape}")
     np.savez(
         save_dir / f"batch_{batch_count:06d}.npz",
         clip1s=batch_clip_1_tensor,
