@@ -175,7 +175,7 @@ class RegressionPreprocessor(Preprocessor):
 
     def generate_training_metadata(self, track_ids: Set[str], split_type: SplitType) -> 'pd.DataFrame':
         """Generate training metadata and return it as a DataFrame."""
-        track_videos = self.config.get_trackid_to_video_metadata()()
+        track_videos = self.config.get_trackid_to_video_metadata()
         if len(track_videos) < 2:
             logging.error(
                 f"Need at least two tracks, found {len(track_videos)}")
@@ -183,7 +183,7 @@ class RegressionPreprocessor(Preprocessor):
 
         dfs = []
         for track_id in track_ids:
-            track_videos_list = self.config.get_trackid_to_video_metadata()()[
+            track_videos_list = self.config.get_trackid_to_video_metadata()[
                 track_id]
             if len(track_videos_list) < 2:
                 logging.warning(

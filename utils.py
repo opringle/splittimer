@@ -1,9 +1,7 @@
-from enum import Enum
 import math
 import random
 import cv2
 import torch
-import torch.nn as nn
 import numpy as np
 import logging
 from pathlib import Path
@@ -126,179 +124,17 @@ def setup_seed(seed):
     if seed:
         random.seed(seed)
         np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
         logging.info(f"Set random seed to {seed}")
 
 
 def setup_logging(log_level="INFO"):
     logging.basicConfig(level=getattr(logging, log_level.upper()),
                         format='%(levelname)s: %(message)s')
-
-
-class InteractionType(Enum):
-    DOT = 'dot'
-    MLP = 'mlp'
-
-
-class PositionClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, interaction_type=InteractionType.MLP, bidirectional=False, compress_sizes=[], post_lstm_sizes=[], dropout=0.0):
-        super(PositionClassifier, self).__init__()
-        self.bidirectional = bidirectional
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.compress_sizes = compress_sizes
-        self.post_lstm_sizes = post_lstm_sizes
-        self.dropout = dropout
-        self.interaction_type = interaction_type
-
-        # Compression layers (same for both interaction types)
-        if compress_sizes:
-            layers = []
-            in_size = input_size
-            for size in compress_sizes:
-                layers.append(nn.Linear(in_size, size))
-                layers.append(nn.ReLU())
-                if dropout > 0:
-                    layers.append(nn.Dropout(dropout))
-                in_size = size
-            self.compression = nn.Sequential(*layers)
-            lstm_input_size = compress_sizes[-1]
-        else:
-            self.compression = nn.Identity()
-            lstm_input_size = input_size
-
-        # LSTM layer (same for both interaction types)
-        self.lstm = nn.LSTM(lstm_input_size, hidden_size,
-                            batch_first=True, bidirectional=bidirectional)
-
-        # Configure interaction-specific layers
-        if self.interaction_type == InteractionType.MLP:
-            lstm_output_size = 2 * hidden_size if bidirectional else hidden_size
-            concat_size = 2 * lstm_output_size
-            if post_lstm_sizes:
-                layers = []
-                in_size = concat_size
-                for size in post_lstm_sizes:
-                    layers.append(nn.Linear(in_size, size))
-                    layers.append(nn.ReLU())
-                    if dropout > 0:
-                        layers.append(nn.Dropout(dropout))
-                    in_size = size
-                self.post_lstm = nn.Sequential(*layers)
-                final_input_size = post_lstm_sizes[-1]
-            else:
-                self.post_lstm = nn.Identity()
-                final_input_size = concat_size
-            self.fc = nn.Linear(final_input_size, 1)
-        elif self.interaction_type == InteractionType.DOT:
-            self.fc = nn.Linear(1, 1)
-        else:
-            raise ValueError("Invalid interaction_type")
-
-    def forward(self, clip1, clip2):
-        # Compress input clips
-        compressed_clip1 = self.compression(clip1)
-        compressed_clip2 = self.compression(clip2)
-
-        # Get LSTM outputs
-        if self.bidirectional:
-            _, (h_n, _) = self.lstm(compressed_clip1)
-            h1 = torch.cat((h_n[-2], h_n[-1]), dim=1)
-            _, (h_n, _) = self.lstm(compressed_clip2)
-            h2 = torch.cat((h_n[-2], h_n[-1]), dim=1)
-        else:
-            _, (h1, _) = self.lstm(compressed_clip1)
-            h1 = h1[-1]
-            _, (h2, _) = self.lstm(compressed_clip2)
-            h2 = h2[-1]
-
-        # Handle interaction based on type
-        if self.interaction_type == InteractionType.MLP:
-            combined = torch.cat((h1, h2), dim=1)
-            post_lstm_output = self.post_lstm(combined)
-            output = self.fc(post_lstm_output)
-        elif self.interaction_type == InteractionType.DOT:
-            dot_product = torch.sum(h1 * h2, dim=1, keepdim=True)
-            output = self.fc(dot_product)
-        else:
-            raise ValueError("Invalid interaction_type")
-        return output
-
-    def save(self, path, epoch, optimizer):
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': self.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'model_type': 'position',
-            'model_config': {
-                'input_size': self.input_size,
-                'hidden_size': self.hidden_size,
-                'bidirectional': self.bidirectional,
-                'compress_sizes': self.compress_sizes,
-                'post_lstm_sizes': self.post_lstm_sizes,
-                'dropout': self.dropout,
-                'interaction_type': self.interaction_type.value,
-            }
-        }
-        torch.save(checkpoint, path)
-
-    @classmethod
-    def load(cls, path, device):
-        checkpoint = torch.load(path, map_location=device)
-        model_config = checkpoint['model_config']
-        interaction_type = InteractionType(
-            model_config.pop('interaction_type'))
-        model = cls(interaction_type=interaction_type,
-                    **model_config).to(device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        return model, checkpoint['epoch'], checkpoint['optimizer_state_dict']
-
-
-class SequencePositionClassifier(nn.Module):
-    def __init__(self, input_size, hidden_sizes, dropout=0.0):
-        super().__init__()
-        self.input_size = input_size
-        self.hidden_sizes = hidden_sizes
-        self.dropout = dropout
-        layers = []
-        in_size = 2 * input_size  # Concatenate two feature vectors
-        for size in hidden_sizes:
-            layers.append(nn.Linear(in_size, size))
-            layers.append(nn.ReLU())
-            if dropout > 0:
-                layers.append(nn.Dropout(dropout))
-            in_size = size
-        layers.append(nn.Linear(in_size, 1))
-        self.model = nn.Sequential(*layers)
-
-    def forward(self, clip1, clip2):
-        # Input shapes: (B, 1, input_size)
-        clip1 = clip1.squeeze(1)  # (B, input_size)
-        clip2 = clip2.squeeze(1)  # (B, input_size)
-        combined = torch.cat((clip1, clip2), dim=1)  # (B, 2*input_size)
-        output = self.model(combined)  # (B, 1)
-        return output
-
-    def save(self, path, epoch, optimizer):
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': self.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'model_type': 'sequence',
-            'model_config': {
-                'input_size': self.input_size,
-                'hidden_sizes': self.hidden_sizes,
-                'dropout': self.dropout,
-            }
-        }
-        torch.save(checkpoint, path)
-
-    @classmethod
-    def load(cls, path, device):
-        checkpoint = torch.load(path, map_location=device)
-        model_config = checkpoint['model_config']
-        model = cls(**model_config).to(device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        return model, checkpoint['epoch'], checkpoint['optimizer_state_dict']
 
 
 def count_parameters(model):

@@ -150,8 +150,8 @@ python generate_training_samples.py \
     --alpha 0.5 \
     --beta_split_0 0.5 \
     --beta 0.5 \
-    --num_augmented_positives_per_segment 50 \
-    --num_non_overlapping_samples_per_positive 50 \
+    --num_augmented_positives_per_segment 10 \
+    --num_non_overlapping_samples_per_positive 0 \
     --ignore_first_split
 ```
 
@@ -174,12 +174,6 @@ python extract_clip_features.py downloaded_videos video_features --feature-extra
 ```
 
 Preprocess videos into training samples and save to disk
-
-```bash
-rm -rf ./training_data/train && rm -rf ./training_data/val
-
-rm -rf ./training_data_regression
-```
 
 ```bash
 python preprocess_videos_into_samples.py \
@@ -210,9 +204,33 @@ python preprocess_videos_into_samples.py \
 Train and evaluate a model on the data
 
 ```bash
-python train_position_classifier.py training_data --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --dropout 0.5 --eval_interval 1 --checkpoint_interval 1
+# classification
+python train_model.py \
+    training_data_classification \
+    --eval_interval 1 \
+    --checkpoint_interval 1 \
+    --learning_rate 0.0001 \
+    --trainer_type classifier \
+    --bidirectional \
+    --compress_sizes 128 \
+    --interaction_type mlp \
+    --hidden_size 128 \
+    --post_lstm_sizes 64 \
+    --dropout 0.5
 
-python train_position_classifier_regression.py training_data_regression --bidirectional --compress_sizes 128 --interaction_type mlp --hidden_size 128 --post_lstm_sizes 64 --learning_rate 0.0001 --eval_interval 1 --dropout 0.5 --checkpoint_interval 1
+# regression
+python train_model.py \
+    training_data_regression \
+    --eval_interval 1 \
+    --checkpoint_interval 1 \
+    --learning_rate 0.0001 \
+    --trainer_type regressor \
+    --bidirectional \
+    --compress_sizes 128 \
+    --interaction_type mlp \
+    --hidden_size 128 \
+    --post_lstm_sizes 64 \
+    --dropout 0.5
 ```
 
 Find splits in a target video using the model
