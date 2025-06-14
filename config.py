@@ -1,4 +1,3 @@
-from pathlib import Path
 import yaml
 from collections import defaultdict
 
@@ -15,31 +14,18 @@ class Config:
             self.config = yaml.safe_load(f)
         self.videos = self.config["videos"]
 
-    def get_video_path(self, video):
-        """
-        Generate the file path for a given video entry.
-
-        Args:
-            video (dict): A dictionary containing 'trackId' and 'riderId'.
-
-        Returns:
-            Path: The constructed video file path.
-        """
-        track_id = video["trackId"]
-        rider_id = video["riderId"]
-        return Path("downloaded_videos") / track_id / rider_id / f"{track_id}_{rider_id}.mp4"
-
-    def get_videos_by_track(self):
+    def get_trackid_to_video_metadata(self):
         """
         Group all videos by their track ID.
 
         Returns:
             defaultdict: A dictionary mapping track IDs to lists of video entries.
         """
-        track_videos = defaultdict(list)
-        for video in self.videos:
-            track_videos[video["trackId"]].append(video)
-        return track_videos
+        trackid_to_video_metadatas = defaultdict(list)
+        for video_metadata in self.videos:
+            trackid_to_video_metadatas[video_metadata["trackId"]].append(
+                video_metadata)
+        return trackid_to_video_metadatas
 
     def get_unique_track_ids(self):
         return list(set(video["trackId"] for video in self.videos))

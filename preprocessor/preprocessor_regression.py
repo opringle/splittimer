@@ -5,7 +5,7 @@ import itertools
 import logging
 import pandas as pd
 from .interface import Preprocessor, SplitType
-from utils import get_video_metadata
+from utils import get_video_file_path, get_video_metadata
 
 
 class RegressionPreprocessor(Preprocessor):
@@ -175,7 +175,7 @@ class RegressionPreprocessor(Preprocessor):
 
     def generate_training_metadata(self, track_ids: Set[str], split_type: SplitType) -> 'pd.DataFrame':
         """Generate training metadata and return it as a DataFrame."""
-        track_videos = self.config.get_videos_by_track()
+        track_videos = self.config.get_trackid_to_video_metadata()()
         if len(track_videos) < 2:
             logging.error(
                 f"Need at least two tracks, found {len(track_videos)}")
@@ -183,7 +183,8 @@ class RegressionPreprocessor(Preprocessor):
 
         dfs = []
         for track_id in track_ids:
-            track_videos_list = self.config.get_videos_by_track()[track_id]
+            track_videos_list = self.config.get_trackid_to_video_metadata()()[
+                track_id]
             if len(track_videos_list) < 2:
                 logging.warning(
                     f"Need at least two riders for track {track_id}, found {len(track_videos_list)}, skipping.")
@@ -194,8 +195,8 @@ class RegressionPreprocessor(Preprocessor):
             for video1, video2 in video_pairs:
                 rider_id1 = video1["riderId"]
                 rider_id2 = video2["riderId"]
-                video_path1 = self.config.get_video_path(video1)
-                video_path2 = self.config.get_video_path(video2)
+                video_path1 = get_video_file_path(track_id, rider_id1)
+                video_path2 = get_video_file_path(track_id, rider_id2)
                 if not video_path1.exists() or not video_path2.exists():
                     logging.warning(
                         f"Video missing for pair {rider_id1} and {rider_id2}, skipping.")

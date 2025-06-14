@@ -118,6 +118,10 @@ def frame_idx_to_timecode(frame_index, fps):
     return timecode
 
 
+def get_video_file_path(track_id: str, rider_id: str):
+    return Path("downloaded_videos") / track_id / rider_id / f"{track_id}_{rider_id}.mp4"
+
+
 def setup_seed(seed):
     if seed:
         random.seed(seed)

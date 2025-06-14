@@ -62,7 +62,6 @@ Classifiers do poorly on the target task. Should I improve the data augmentation
 
 ## TODO
 
-- add option to generate samples that put val fraction runs in the validation set
 - reframe as ML problem
 - annotate more videos (ews runs too)
 - update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
@@ -127,7 +126,7 @@ python generate_training_samples.py \
     --val_ratio 0.2 \
     --log-level INFO \
     --seed 42 \
-    --output_path training_data/metadata.csv \
+    --output_path training_data/metadata_classification.csv \
     --preprocessor_type classifier \
     --clip-length 50 \
     --alpha_split_0 0.5 \
@@ -159,7 +158,12 @@ python generate_training_samples.py \
 Inspect the labels
 
 ```bash
-python inspect_training_data.py training_data/training_metadata.csv --num_samples=15 --sample_types augmented && \
+# classification
+python inspect_training_data.py training_data/metadata_classification.csv --num_samples=3 && \
+open ./training_data_inspection/index.html
+
+# regression
+python inspect_training_data.py training_data/metadata_regression.csv --num_samples=3 && \
 open ./training_data_inspection/index.html
 ```
 
