@@ -5,11 +5,13 @@ predictions_images/
 split_times_inspection/
 training_data_inspection/
 *.npy
+*.npz
+*.csv
+*.html
 runs/
 artifacts/
 __pycache__/
 *.json
 !.vscode/settings.json
-*.npz
-*.csv
+
 question_grok.txt
