@@ -78,15 +78,13 @@ def main():
 
     for epoch in range(start_epoch, args.num_epochs):
         train_metrics = trainer.fit(train_loader)
-        logging.info(
-            f'Epoch {epoch}: Train Loss {train_metrics["Loss"]:.2}')
+        log_metrics(f"Epoch {epoch} train metrics, ", train_metrics)
         for metric_name, metric_value in train_metrics.items():
             writer.add_scalar(f"{metric_name}/Train", metric_value, epoch)
 
         if (epoch + 1) % args.eval_interval == 0 or epoch == args.num_epochs - 1:
             val_metrics = trainer.evaluate(val_loader)
-            logging.info(
-                f'Epoch {epoch}: Val Loss {val_metrics["Loss"]:.2}')
+            log_metrics(f"Epoch {epoch} val metrics, ", val_metrics)
             for metric_name, metric_value in val_metrics.items():
                 writer.add_scalar(f"{metric_name}/Val", metric_value, epoch)
 
@@ -95,6 +93,13 @@ def main():
             logging.info(f'Saved checkpoint {epoch}')
 
     writer.close()
+
+
+def log_metrics(prefix: str, metrics: dict) -> str:
+    log_str = prefix
+    for metric_name, metric_value in metrics.items():
+        log_str += f'{metric_name} {metric_value:.2f}'
+    logging.info(log_str)
 
 
 if __name__ == "__main__":

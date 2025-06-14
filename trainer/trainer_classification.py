@@ -63,7 +63,7 @@ class ClassificationTrainer(Trainer):
                 ',')] if args.post_lstm_sizes else []
             clip1, clip2, _ = next(iter(dataloader))
             _, B, F, input_size = clip1.shape
-            self.model = PositionClassifier(
+            self.model = ClassifierModel(
                 input_size=input_size,
                 hidden_size=args.hidden_size,
                 interaction_type=InteractionType(args.interaction_type),
@@ -85,7 +85,7 @@ class ClassificationTrainer(Trainer):
     def load(checkpoint_path: str, device: str) -> Tuple['Trainer', int]:
         """Load the trainer from a checkpoint file."""
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model, epoch, optimizer_state_dict = PositionClassifier.load(
+        model, epoch, optimizer_state_dict = ClassifierModel.load(
             checkpoint_path, device)
         optimizer = torch.optim.Adam(model.parameters())
         optimizer.load_state_dict(optimizer_state_dict)
@@ -130,7 +130,7 @@ class ClassificationTrainer(Trainer):
         """Perform a forward and backward pass for training, returning extended metrics."""
         self.model.train()
         total_loss = 0.0
-        for clip1, clip2, label in tqdm(dataloader, desc="Forward backward pass"):
+        for clip1, clip2, label in tqdm(dataloader):
             clip1 = clip1.to(self.device).squeeze()
             clip2 = clip2.to(self.device).squeeze()
             label = label.to(self.device).squeeze()
@@ -150,7 +150,7 @@ class ClassificationTrainer(Trainer):
         all_labels = []
         total_loss = 0.0
         with torch.no_grad():
-            for clip1, clip2, label in tqdm(dataloader, desc="Forward pass"):
+            for clip1, clip2, label in tqdm(dataloader):
                 clip1 = clip1.to(self.device).squeeze()
                 clip2 = clip2.to(self.device).squeeze()
                 label = label.to(self.device).squeeze()
@@ -173,9 +173,9 @@ class InteractionType(Enum):
     MLP = 'mlp'
 
 
-class PositionClassifier(nn.Module):
+class ClassifierModel(nn.Module):
     def __init__(self, input_size, hidden_size, interaction_type=InteractionType.MLP, bidirectional=False, compress_sizes=[], post_lstm_sizes=[], dropout=0.0):
-        super(PositionClassifier, self).__init__()
+        super(ClassifierModel, self).__init__()
         self.bidirectional = bidirectional
         self.input_size = input_size
         self.hidden_size = hidden_size
