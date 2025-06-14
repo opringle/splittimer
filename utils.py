@@ -333,15 +333,11 @@ def parse_clip_range(file_name, feature_type='individual', sequence_length=None)
 
 def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, feature_base_path):
     F = end_idx - start_idx + 1
-    if F <= 0:
-        logging.error(
-            f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}")
-        return np.array([])
+    assert F > 0, f"Invalid frame range: start_idx {start_idx} > end_idx {end_idx}"
 
     feature_base_dir = Path(feature_base_path) / track_id / rider_id
-    if not feature_base_dir.exists():
-        logging.error(f"Feature directory {feature_base_dir} does not exist")
-        return np.array([])
+    assert feature_base_dir.exists(
+    ), f"Feature directory {feature_base_dir} does not exist"
 
     clip_ranges = []
     for file_path in feature_base_dir.glob("*_resnet50.npy"):
@@ -352,10 +348,7 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
         else:
             logging.error(f"Skipping invalid file name: {file_path.name}")
 
-    if not clip_ranges:
-        logging.error(
-            f"No valid individual feature files found in {feature_base_dir}")
-        return np.array([])
+    assert clip_ranges, f"No valid individual feature files found in {feature_base_dir}"
 
     overlapping_clips = [
         (clip_start, clip_end, file_path)
@@ -363,24 +356,13 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
         if clip_start <= end_idx and clip_end >= start_idx
     ]
 
-    if not overlapping_clips:
-        logging.error(
-            f"No individual clips overlap with range [{start_idx}, {end_idx}]")
-        return np.array([])
+    assert overlapping_clips, f"No individual clips overlap with range [{start_idx}, {end_idx}]"
 
     features = []
     for clip_start, clip_end, file_path in overlapping_clips:
-        try:
-            clip_features = np.load(file_path)
-            if clip_features.shape[1] != 2048:
-                logging.error(
-                    f"Unexpected individual feature shape {clip_features.shape} in {file_path}")
-                return np.array([])
-        except Exception as e:
-            logging.error(
-                f"Error loading individual features from {file_path}: {e}")
-            return np.array([])
-
+        clip_features = np.load(file_path)
+        assert clip_features.shape[
+            1] == 2048, f"Unexpected individual feature shape {clip_features.shape} in {file_path}"
         extract_start = max(clip_start, start_idx)
         extract_end = min(clip_end, end_idx)
         rel_start = extract_start - clip_start
@@ -389,16 +371,10 @@ def load_image_features_from_disk(track_id, rider_id, start_idx, end_idx, featur
             clip_features_subset = clip_features[rel_start:rel_end + 1]
             features.append(clip_features_subset)
 
-    if not features:
-        logging.error(
-            f"No individual features loaded for range [{start_idx}, {end_idx}]")
-        return np.array([])
+    assert features, f"No individual features loaded for range [{start_idx}, {end_idx}]"
 
     features = np.concatenate(features, axis=0)
-    if features.shape[0] != F:
-        logging.error(
-            f"Loaded {features.shape[0]} individual frames, expected {F}")
-        return np.array([])
+    assert features.shape[0] == F, f"Loaded {features.shape[0]} individual frames, expected {F}"
     return features
 
 

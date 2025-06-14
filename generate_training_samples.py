@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--output_path", type=str, default="training_data/training_metadata.csv",
                         help="Path to save the output CSV file")
     parser.add_argument("--preprocessor_type", type=str,
-                        default="default", help="Preprocessor type")
+                        help="Preprocessor type")
 
     # Parse known arguments to get preprocessor_type
     args, _ = parser.parse_known_args()
