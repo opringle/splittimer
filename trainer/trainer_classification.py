@@ -6,6 +6,9 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from argparse import ArgumentParser
 from torch.utils.data import DataLoader
+
+from config import Config
+from utils import get_clip_indices_ending_at, get_video_file_path, get_video_fps_and_total_frames, load_image_features_from_disk, timecode_to_frames
 from .interface import Trainer
 from tqdm import tqdm
 
@@ -63,6 +66,7 @@ class ClassificationTrainer(Trainer):
                 ',')] if args.post_lstm_sizes else []
             clip1, clip2, _ = next(iter(dataloader))
             _, B, F, input_size = clip1.shape
+            self.clip_length = F
             self.model = ClassifierModel(
                 input_size=input_size,
                 hidden_size=args.hidden_size,
@@ -166,6 +170,34 @@ class ClassificationTrainer(Trainer):
         metrics = ClassificationTrainer.compute_metrics(all_preds, all_labels)
         metrics['Loss'] = avg_loss
         return metrics
+
+    # TODO: implement
+    def predict_splits(self, config: Config, track_id: str, source_rider_id: str, target_rider_id: str) -> List[str]:
+        # get source rider clips for each split
+        source_splits = config.get_timecodes(track_id, source_rider_id)
+        source_video_path = get_video_file_path(track_id, source_rider_id)
+        source_fps, _ = get_video_fps_and_total_frames(source_video_path)
+        source_split_frame_idxs = [timecode_to_frames(
+            tc, source_fps) for tc in source_splits]
+
+        source_samples = {}
+        for source_split_frame_idx in source_split_frame_idxs:
+            indices = get_clip_indices_ending_at(
+                source_split_frame_idx, self.clip_length)
+
+            start_idx = indices[0]
+            end_idx = indices[-1]
+            # TODO: finish up
+            features = load_image_features_from_disk(
+                track_id, source_rider_id, start_idx, end_idx, args.image_feature_path)
+            assert features.size > 0, f"Failed to load features for source split at {source_end_idx}"
+            features_with_extras = add_features_to_clip(
+                features, indices, total_frames=source_total_frames,
+                add_position=args.add_position_feature,
+                add_percent_completion=args.add_percent_completion_feature
+            )
+            source_samples[end_idx] = torch.from_numpy(
+                features_with_extras).unsqueeze(0).to(args.device)
 
 
 class InteractionType(Enum):

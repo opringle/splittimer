@@ -1,3 +1,5 @@
+import logging
+from typing import List
 import yaml
 from collections import defaultdict
 
@@ -29,3 +31,20 @@ class Config:
 
     def get_unique_track_ids(self):
         return list(set(video["trackId"] for video in self.videos))
+
+    def get_timecodes(self, track_id: str, rider_id: str) -> List[str]:
+        matching_videos = [
+            video for video in self.videos
+            if video.get('trackId') == track_id and video.get('riderId') == rider_id
+        ]
+
+        assert len(
+            matching_videos) == 1, f"Found {len(matching_videos)} videos for rider {rider_id} on track {track_id}!"
+        video = matching_videos[0]
+        splits = video.get('splits', [])
+
+        if not splits:
+            logging.warning(
+                f"No splits found for track {track_id} and rider {rider_id}")
+
+        return splits

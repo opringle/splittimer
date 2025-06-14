@@ -8,6 +8,13 @@ from pathlib import Path
 import re
 
 
+def log_dict(prefix: str, metrics: dict) -> str:
+    log_str = prefix
+    for metric_name, metric_value in metrics.items():
+        log_str += f' {metric_name} {metric_value:.2f}'
+    logging.info(log_str)
+
+
 def get_video_metadata(video_path, splits, rider_id, track_id):
     fps, total_frames = get_video_fps_and_total_frames(video_path)
 

@@ -18,7 +18,7 @@ class Trainer(ABC):
         pass
 
     @abstractmethod
-    def save(dir: str, checkpoint_idx: int) -> None:
+    def save(self, dir: str, checkpoint_idx: int) -> None:
         pass
 
     @staticmethod
@@ -32,9 +32,16 @@ class Trainer(ABC):
         pass
 
     @abstractmethod
-    def fit(dataloader: DataLoader) -> Dict:
+    def fit(self, dataloader: DataLoader) -> Dict:
         pass
 
     @abstractmethod
-    def evaluate(dataloader: DataLoader) -> Dict:
+    def evaluate(self, dataloader: DataLoader) -> Dict:
+        pass
+
+    @abstractmethod
+    def predict_splits(self, config: Config, track_id: str, source_rider_id: str, target_rider_id: str) -> List[str]:
+        """
+        Return a list of predicted splits 'MM:HH:FF' for the target rider that correspond to the positions of each split for the source rider
+        """
         pass
