@@ -184,7 +184,8 @@ rm -rf ./training_data_regression
 ```bash
 python preprocess_videos_into_samples.py \
     training_data/metadata_classification.csv \
-    video_features training_data \
+    video_features \
+    training_data_classification \
     --seed=42 \
     --batch_size=32 \
     --sample_generator_type classifier \
@@ -193,7 +194,17 @@ python preprocess_videos_into_samples.py \
     --add_position_feature \
     --add_percent_completion_feature
 
-python preprocess_videos_into_samples_regression.py training_data/training_metadata_regression.csv video_features training_data_regression --F=50 --batch_size=32 --log-level DEBUG
+python preprocess_videos_into_samples.py \
+    training_data/metadata_regression.csv \
+    video_features \
+    training_data_regression \
+    --seed=42 \
+    --batch_size=32 \
+    --sample_generator_type regressor \
+    --log-level DEBUG \
+    --F=50 \
+    --add_position_feature \
+    --add_percent_completion_feature
 ```
 
 Train and evaluate a model on the data
