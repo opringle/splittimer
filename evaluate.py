@@ -7,7 +7,7 @@ from tqdm import tqdm
 from config import Config
 from sample_generator import get_sample_generator_class
 from trainer import get_trainer_class
-from utils import get_default_device_name, get_video_file_path, get_video_fps_and_total_frames, log_dict, setup_logging, setup_seed, timecode_to_frames
+from utils import get_default_device_name, get_video_file_path, get_video_fps_and_total_frames, log_dict, setup_logging, setup_seed, timecode_to_frames, timecode_to_seconds
 
 
 def worker_init_fn(worker_id):
@@ -63,11 +63,15 @@ def main():
 
     mean_absolute_error_sum = 0
     for target_rider_id, actual_timecodes in tqdm(target_rid_to_timecodes.items(), desc="Target rider predictions"):
+        target_video_path = get_video_file_path(
+            args.trackId, target_rider_id)
+        target_fps, _ = get_video_fps_and_total_frames(target_video_path)
+
         predicted_timecodes = trainer.predict_timecodes(
             args.trackId, args.sourceRiderId, source_timecodes, target_rider_id)
 
         mean_absolute_error_seconds = mean_absolute_error_seconds(
-            predicted_timecodes, actual_timecodes)
+            predicted_timecodes, actual_timecodes, target_fps)
         mean_absolute_error_sum += mean_absolute_error_seconds
 
     metrics = {'macro_mean_absolute_error_seconds': mean_absolute_error_sum /
@@ -75,9 +79,21 @@ def main():
     log_dict(f"Model achieves metrics:", metrics)
 
 
-def mean_absolute_error_seconds(predicted_timecodes: List[str], actual_timecodes: List[str]) -> float:
-    # TODO: compute the mean absolute error between 2 equal length arrays of timecodes in format MM:SS:FF
-    pass
+def mean_absolute_error_seconds(predicted_timecodes: List[str], actual_timecodes: List[str], fps: float) -> float:
+    """Compute the mean absolute error in seconds between two lists of timecodes."""
+    # Convert timecodes to total seconds
+    predicted_seconds = [timecode_to_seconds(
+        tc, fps) for tc in predicted_timecodes]
+    actual_seconds = [timecode_to_seconds(tc, fps) for tc in actual_timecodes]
+
+    # Compute absolute differences
+    abs_diff_seconds = [abs(p - a)
+                        for p, a in zip(predicted_seconds, actual_seconds)]
+
+    # Handle empty list case and compute mean
+    if len(abs_diff_seconds) == 0:
+        return 0.0
+    return sum(abs_diff_seconds) / len(abs_diff_seconds)
 
 
 if __name__ == "__main__":

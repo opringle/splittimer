@@ -94,6 +94,13 @@ def timecode_to_frames(timecode, fps):
     return frame_index
 
 
+def timecode_to_seconds(timecode: str, fps: float) -> float:
+    """Convert a timecode 'MM:SS:FF' to total seconds using the given fps."""
+    minutes, seconds, frames = map(int, timecode.split(':'))
+    total_seconds = minutes * 60 + seconds + frames / fps
+    return total_seconds
+
+
 def frame_idx_to_timecode(frame_index, fps):
     """
     Convert a frame index to a timecode in "MM:SS:FF" format based on the video's native frame rate.

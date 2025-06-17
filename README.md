@@ -6,6 +6,8 @@ Alternatively I could have each clips features stored once. Then with some smart
 ## TODO
 
 - refactor python files to interface implementations
+  - model.save() & model.load() should have single arg (path)
+  -
 - rewrite pipeline and hyperopt for new code
 - annotate more videos (ews runs too)
 
