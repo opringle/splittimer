@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 from enum import Enum
+
+import numpy as np
 from config import Config
-from typing import Any
+from typing import Any, Sequence
 
 
 class SplitType(str, Enum):
@@ -34,7 +36,7 @@ class SampleGenerator(ABC):
         pass
 
     @abstractmethod
-    def compute_and_cache_features(self, row: dict) -> None:
+    def get_features(self, video_feature_cache: dict, **kwargs) -> Sequence[np.ndarray]:
         """
         Compute features given a dictionary of metadata for an ML sample
 
@@ -44,8 +46,4 @@ class SampleGenerator(ABC):
         Returns:
             None
         """
-        pass
-
-    @abstractmethod
-    def save_batch(self, save_dir: str) -> None:
         pass

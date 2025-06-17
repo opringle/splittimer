@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 from tqdm import tqdm
 from sample_generator import get_sample_generator_class
-from utils import setup_logging, setup_seed
+from utils import save_batch, setup_logging, setup_seed
 
 
 def main():
@@ -34,8 +34,7 @@ def main():
 
     setup_logging(args.log_level)
     setup_seed(args.seed)
-    train_sample_generator = SampleGeneratorClass.from_args(args)
-    val_sample_generator = SampleGeneratorClass.from_args(args)
+    sample_generator = SampleGeneratorClass.from_args(args)
 
     df = pd.read_csv(args.csv_path)
     df = df.sample(frac=1, random_state=args.seed, ignore_index=True)
@@ -69,20 +68,33 @@ def main():
     val_batch_count = 0
 
     # Process training samples
+    train_samples = []
     for idx, row in enumerate(tqdm(train_df.itertuples(), total=len(train_df), desc="Generating training samples")):
-        train_sample_generator.compute_and_cache_features(
-            row, video_feature_cache)
-        if len(train_sample_generator.samples) >= args.batch_size or idx == len(train_df) - 1:
-            train_sample_generator.save_batch(train_dir)
+        row_dict = row._asdict()
+        sample = sample_generator.get_features(
+            video_feature_cache, **row_dict)
+        train_samples.append(sample)
+
+        logging.debug(f"Train sample shapes: {[f.shape for f in sample]}")
+
+        if len(train_samples) >= args.batch_size or idx == len(train_df) - 1:
+            save_batch(train_dir, train_samples, idx)
+            train_samples = []
             train_batch_count += 1
+    # TODO: handle remaining samples
 
     # Process validation samples
+    val_samples = []
     for idx, row in enumerate(tqdm(val_df.itertuples(), total=len(val_df), desc="Generating validation samples")):
-        val_sample_generator.compute_and_cache_features(
-            row, video_feature_cache)
-        if len(val_sample_generator.samples) >= args.batch_size or idx == len(val_df) - 1:
-            val_sample_generator.save_batch(val_dir)
+        row_dict = row._asdict()
+        val_samples.append(sample_generator.get_features(
+            video_feature_cache, **row_dict))
+
+        if len(val_samples) >= args.batch_size or idx == len(val_df) - 1:
+            save_batch(val_dir, val_samples, idx)
+            val_samples = []
             val_batch_count += 1
+    # TODO: handle remaining samples
 
     logging.info(
         f"Generated {len(train_df)} training samples in {train_batch_count} batches")

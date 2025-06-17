@@ -1,5 +1,7 @@
+from collections import defaultdict
 import math
 import random
+from typing import List, Sequence
 import cv2
 import torch
 import numpy as np
@@ -229,15 +231,46 @@ def get_clip_indices_ending_at(end_idx, F):
     return clip_indices[:F]
 
 
-def save_batch(save_dir, batch_count, batch_clip1s, batch_clip2s, batch_labels):
-    batch_clip_1_tensor = np.stack(batch_clip1s, axis=0)
-    batch_clip_2_tensor = np.stack(batch_clip2s, axis=0)
-    batch_label_tensor = np.array(batch_labels)
+def save_batch(save_dir: str, samples: List[Sequence[np.ndarray]], batch_idx: int) -> None:
+    """
+    Saves a batch of size len(samples) to a npz file in save_dir/batch_{batch_idx}.npz.
+    Each sample is a sequence of numpy arrays, concatenated by position across samples.
+
+    Args:
+        save_dir (str): Directory to save the NPZ file.
+        batch_idx (int): Index of the batch for the filename.
+        samples (List[Sequence[np.ndarray]]): List of sequences, each containing NumPy arrays.
+
+    Raises:
+        ValueError: If sequences have different lengths or arrays at the same position have incompatible shapes.
+    """
+    # Check for consistent sequence lengths
+    seq_lengths = [len(s) for s in samples]
+    if len(set(seq_lengths)) > 1:
+        raise ValueError(
+            "All sequences must have the same length for stacking.")
+
+    # Group arrays by their position across all sequences
+    idx_to_list_of_np_array = defaultdict(list)
+    for s in samples:
+        for idx, np_array in enumerate(s):
+            idx_to_list_of_np_array[idx].append(np_array)
+
+    # Stack arrays at each position into a single array
+    batch_data = {}
+    for idx, feature_list in idx_to_list_of_np_array.items():
+        try:
+            batch_data[f"data_{idx}"] = np.stack(feature_list, axis=0)
+        except ValueError as e:
+            raise ValueError(
+                f"Arrays at position {idx} have incompatible shapes for stacking: {str(e)}")
+
+    # Determine the file path and ensure the directory exists
+    batch_file_path = Path(save_dir) / f"batch_{batch_idx}.npz"
+    batch_file_path.parent.mkdir(parents=True, exist_ok=True)
+
     logging.debug(
-        f"Saving batch {batch_count}. batch_clip_1_tensor.shape={batch_clip_1_tensor.shape} batch_clip_2_tensor.shape={batch_clip_2_tensor.shape}")
-    np.savez(
-        save_dir / f"batch_{batch_count:06d}.npz",
-        clip1s=batch_clip_1_tensor,
-        clip2s=batch_clip_2_tensor,
-        labels=batch_label_tensor
-    )
+        f"Saving batch {idx} with shapes: {[f.shape for f in batch_data.values()]}")
+
+    # Save the stacked arrays to an NPZ file
+    np.savez(batch_file_path, **batch_data)
