@@ -6,6 +6,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from argparse import ArgumentParser
 from torch.utils.data import DataLoader
+
+from config import Config
 from .interface import Trainer
 from tqdm import tqdm
 
@@ -151,6 +153,10 @@ class RegressionTrainer(Trainer):
         metrics = RegressionTrainer.compute_metrics(all_preds, all_labels)
         metrics['Mean Squared Error'] = avg_loss
         return metrics
+
+    # TODO: implement
+    def predict_splits(self, config: Config, track_id: str, source_rider_id: str, target_rider_id: str) -> List[str]:
+        pass
 
 
 class InteractionType(Enum):

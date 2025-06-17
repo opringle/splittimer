@@ -30,7 +30,7 @@ def main():
     parser.add_argument('--artifacts_dir', type=str, default=None)
     parser.add_argument("--log-level", type=str, default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-    parser.add_argument('--seed', type=int, default=42,
+    parser.add_argument('--seed', type=int, default=None,
                         help='Random seed for reproducibility')
     parser.add_argument('--trainer_type', type=str, required=True,
                         help='Type of model to train')
@@ -74,13 +74,13 @@ def main():
 
     for epoch in range(start_epoch, args.num_epochs):
         train_metrics = trainer.fit(train_loader)
-        log_dict(f"Epoch {epoch} train metrics,", train_metrics)
+        log_dict(f"Epoch {epoch} train metrics:", train_metrics)
         for metric_name, metric_value in train_metrics.items():
             writer.add_scalar(f"{metric_name}/Train", metric_value, epoch)
 
         if (epoch + 1) % args.eval_interval == 0 or epoch == args.num_epochs - 1:
             val_metrics = trainer.evaluate(val_loader)
-            log_dict(f"Epoch {epoch} val metrics,", val_metrics)
+            log_dict(f"Epoch {epoch} val metrics:", val_metrics)
             for metric_name, metric_value in val_metrics.items():
                 writer.add_scalar(f"{metric_name}/Val", metric_value, epoch)
 

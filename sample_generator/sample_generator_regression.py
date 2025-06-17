@@ -48,7 +48,7 @@ class RegressionSampleGenerator(SampleGenerator):
         v2_rider_id = kwargs["v2_rider_id"]
         v1_frame_idx = kwargs["v1_frame_idx"]
         v2_frame_idx = kwargs["v2_frame_idx"]
-        label = np.ndarray([kwargs["label"]])
+        label = np.array(kwargs["label"])
 
         video_path_v1 = get_video_file_path(track_id, v1_rider_id)
         video_path_v2 = get_video_file_path(track_id, v2_rider_id)
@@ -86,8 +86,4 @@ class RegressionSampleGenerator(SampleGenerator):
             v2_features = self._add_percent_through_video_feature(
                 video_path_v2, video_feature_cache, start_frame_idx=v2_start_idx, end_frame_idx=v2_end_idx, features=v2_features)
 
-        self.samples.append({
-            'v1_features': v1_features,
-            'v2_features': v2_features,
-            'label': label,
-        })
+        return v1_features, v2_features, label

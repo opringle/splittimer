@@ -5,9 +5,9 @@ Alternatively I could have each clips features stored once. Then with some smart
 
 ## TODO
 
-- reframe as ML problem
+- refactor python files to interface implementations
+- rewrite pipeline and hyperopt for new code
 - annotate more videos (ews runs too)
-- update `inspect_training_data.py` to show videos side by side and verify that the training data quality is good
 
 ```bash
 # best combo: step 7 (epoch 8) 0.905 macro F1 score on validation data
@@ -173,10 +173,12 @@ python train_model.py \
     --interaction_type mlp \
     --hidden_size 128 \
     --post_lstm_sizes 64 \
-    --dropout 0.5
+    --dropout 0.5 \
+    --resume_from ./artifacts/experiment_20250617_061451/checkpoints/checkpoint_0.pt
+    # should be 748.541 train loss & Validation: Mean Absolute Error 24.749 Mean Squared Error 816.981
 ```
 
-Find splits in a target video using the model
+Evaluate
 
 ```bash
 python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth
