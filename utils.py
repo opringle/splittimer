@@ -13,7 +13,7 @@ import re
 def log_dict(prefix: str, metrics: dict) -> str:
     log_str = prefix
     for metric_name, metric_value in metrics.items():
-        log_str += f' {metric_name} {metric_value:.2f}'
+        log_str += f'\n\t{metric_name} {metric_value:.3f}'
     logging.info(log_str)
 
 

@@ -22,9 +22,9 @@ class ClassificationDataset(Dataset):
 
     def __getitem__(self, idx):
         data = np.load(self.file_list[idx])
-        clip1 = data['v1_features'].astype(np.float32)
-        clip2 = data['v2_features'].astype(np.float32)
-        label = data['labels'].astype(np.float32)
+        clip1 = data['data_0'].astype(np.float32)
+        clip2 = data['data_1'].astype(np.float32)
+        label = data['data_2'].astype(np.float32)
         return torch.from_numpy(clip1), torch.from_numpy(clip2), torch.from_numpy(label)
 
 
