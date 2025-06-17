@@ -62,7 +62,7 @@ class ClassificationTrainer(Trainer):
             self.model = model
             self.optimizer = optimizer
             self.device = device
-            # TODO: need arguments when initializing. Do not allow to be None. Persist in save method and reload in load method
+            # TODO: require argsDo not allow to be None. Persist in save method and reload in load method
         else:
             if args is None or dataloader is None:
                 raise ValueError(
@@ -101,6 +101,7 @@ class ClassificationTrainer(Trainer):
     @staticmethod
     def load(checkpoint_path: str, device: str) -> Tuple['Trainer', int]:
         """Load the trainer from a checkpoint file."""
+        # TODO: read args and use in instantiation
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model, epoch, optimizer_state_dict = ClassifierModel.load(
             checkpoint_path, device)
@@ -316,6 +317,7 @@ class ClassifierModel(nn.Module):
         return output
 
     def save(self, path, epoch, optimizer):
+        # TODO: save args for reinstantiation
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.state_dict(),
