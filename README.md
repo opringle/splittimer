@@ -159,7 +159,10 @@ python train_model.py \
     --interaction_type mlp \
     --hidden_size 128 \
     --post_lstm_sizes 64 \
-    --dropout 0.5
+    --dropout 0.5 \
+    --image_feature_path video_features \
+    --add_position_feature \
+    --add_percent_completion_feature
 
 # regression
 python train_model.py \
@@ -173,14 +176,31 @@ python train_model.py \
     --interaction_type mlp \
     --hidden_size 128 \
     --post_lstm_sizes 64 \
-    --dropout 0.5 \
-    --resume_from ./artifacts/experiment_20250617_061451/checkpoints/checkpoint_0.pt
-    # should be 748.541 train loss & Validation: Mean Absolute Error 24.749 Mean Squared Error 816.981
+    --dropout 0.5
 ```
 
 Evaluate
 
 ```bash
+# classification
+python evaluate.py \
+    video_config.yaml \
+    video_features \
+    predictions.json \
+    --trackId leogang_2025 \
+    --sourceRiderId asa_vermette \
+    --targetRiderIds jordan_williams \
+    --checkpoint_path ./artifacts/experiment_20250617_063046/checkpoints/checkpoint_0.pt \
+    --log-level INFO \
+    --trainer_type classifier \
+    --sample_generator_type classifier
+
+# regressor
+python evaluate.py \
+
+
+
+
 python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth
 
 python find_splits.py video_config.yaml video_features predictions.json --trackId loudenvielle_2025 --F 50 --sourceRiderId amaury_pierron --targetRiderId joe_breeden --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth

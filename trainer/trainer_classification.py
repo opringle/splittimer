@@ -8,6 +8,8 @@ from argparse import ArgumentParser
 from torch.utils.data import DataLoader
 
 from config import Config
+from sample_generator import get_sample_generator_class
+from sample_generator.sample_generator_classification import ClassifierSampleGenerator
 from utils import get_clip_indices_ending_at, get_video_file_path, get_video_fps_and_total_frames, load_image_features_from_disk, timecode_to_frames
 from .interface import Trainer
 from tqdm import tqdm
@@ -42,6 +44,12 @@ class ClassificationTrainer(Trainer):
         parser.add_argument('--dropout', type=float, default=0.0)
         parser.add_argument('--lr', type=float, default=0.001)  # Learning rate
 
+        parser.add_argument('--image_feature_path', type=str, required=True)
+        parser.add_argument('--add_position_feature', type=bool,
+                            action='store_true', default=False)
+        parser.add_argument('--add_percent_completion_feature',
+                            type=bool,  action='store_true', default=False)
+
     @staticmethod
     def from_args(args: Any, dataloader: DataLoader) -> 'Trainer':
         """Create an instance from parsed arguments and dataloader."""
@@ -54,6 +62,7 @@ class ClassificationTrainer(Trainer):
             self.model = model
             self.optimizer = optimizer
             self.device = device
+            # TODO: need arguments when initializing. Do not allow to be None. Persist in save method and reload in load method
         else:
             if args is None or dataloader is None:
                 raise ValueError(
@@ -67,6 +76,10 @@ class ClassificationTrainer(Trainer):
             clip1, clip2, _ = next(iter(dataloader))
             _, B, F, input_size = clip1.shape
             self.clip_length = F
+            self.image_feature_path = args.image_feature_path
+            self.add_position_feature = args.add_position_feature
+            self.add_percent_completion_feature = args.add_percent_completion_feature
+
             self.model = ClassifierModel(
                 input_size=input_size,
                 hidden_size=args.hidden_size,
@@ -171,33 +184,46 @@ class ClassificationTrainer(Trainer):
         metrics['Loss'] = avg_loss
         return metrics
 
-    # TODO: implement
-    def predict_splits(self, config: Config, track_id: str, source_rider_id: str, target_rider_id: str) -> List[str]:
-        # get source rider clips for each split
-        source_splits = config.get_timecodes(track_id, source_rider_id)
-        source_video_path = get_video_file_path(track_id, source_rider_id)
-        source_fps, _ = get_video_fps_and_total_frames(source_video_path)
-        source_split_frame_idxs = [timecode_to_frames(
-            tc, source_fps) for tc in source_splits]
+    def predict_timecodes(self, track_id: str, source_rider_id: str, source_timecodes: List[str], target_rider_id: str) -> List[str]:
+        # Construct batches of samples for prediction
+        # TODO: instantiate the sample generator
+        sample_generator = ClassifierSampleGenerator(args={
+            'F': self.clip_length,
+            'image_feature_path': self.image_feature_path,
+            'add_position_feature': self.add_position_feature,
+            'add_percent_completion_feature': self.add_percent_completion_feature,
+        })
+        video_feature_cache = {}
+        for source_timecode in source_timecodes:
+            source_video_path = get_video_file_path(
+                track_id, source_rider_id)
+            source_fps, _ = get_video_fps_and_total_frames(source_video_path)
+            v1_frame_idx = timecode_to_frames(source_timecode, source_fps)
+            target_video_path = get_video_file_path(
+                track_id, target_rider_id)
+            target_fps, target_total_frames = get_video_fps_and_total_frames(
+                target_video_path)
+            for v2_frame_idx in range(target_total_frames):
+                row_dict = {
+                    'track_id': track_id,
+                    'v1_rider_id': source_rider_id,
+                    'v2_rider_id': target_rider_id,
+                    'v1_frame_idx': v1_frame_idx,
+                    'v2_frame_idx': v2_frame_idx,
+                    'label': 0.0,  # dummy value,
+                }
+                sample = sample_generator.get_features(
+                    video_feature_cache, **row_dict)
 
-        source_samples = {}
-        for source_split_frame_idx in source_split_frame_idxs:
-            indices = get_clip_indices_ending_at(
-                source_split_frame_idx, self.clip_length)
+                # TODO: add to a list of batch of samples of size batch_size
 
-            start_idx = indices[0]
-            end_idx = indices[-1]
-            # TODO: finish up
-            features = load_image_features_from_disk(
-                track_id, source_rider_id, start_idx, end_idx, args.image_feature_path)
-            assert features.size > 0, f"Failed to load features for source split at {source_end_idx}"
-            features_with_extras = add_features_to_clip(
-                features, indices, total_frames=source_total_frames,
-                add_position=args.add_position_feature,
-                add_percent_completion=args.add_percent_completion_feature
-            )
-            source_samples[end_idx] = torch.from_numpy(
-                features_with_extras).unsqueeze(0).to(args.device)
+        # TODO: Loop through batches making predictions with self.model
+
+        # TODO: Get highest confidence prediction per source_timecode
+
+        # TODO: convert timecodes to frame indices using util frame_idx_to_timecode(frame_index, fps)
+
+        # TODO: return a list of string timecodes where len == len(source_timecodes)
 
 
 class InteractionType(Enum):

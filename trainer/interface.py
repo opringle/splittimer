@@ -40,8 +40,5 @@ class Trainer(ABC):
         pass
 
     @abstractmethod
-    def predict_splits(self, config: Config, track_id: str, source_rider_id: str, target_rider_id: str) -> List[str]:
-        """
-        Return a list of predicted splits 'MM:HH:FF' for the target rider that correspond to the positions of each split for the source rider
-        """
+    def predict_timecodes(self, track_id: str, source_rider_id: str, source_timecodes: List[str], target_rider_id: str) -> List[str]:
         pass
