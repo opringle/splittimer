@@ -5,8 +5,9 @@ Alternatively I could have each clips features stored once. Then with some smart
 
 ## TODO
 
+- get classifier pipeline running
 - get regression pipeline running
-- fix view_predictions
+- output predictions file for viewing from eval???
 - rewrite hyperopt for new code
 - annotate more videos (ews runs too)
 
@@ -141,7 +142,7 @@ python preprocess_videos_into_samples.py \
     --seed=42 \
     --batch_size=32 \
     --sample_generator_type classifier \
-    --log-level DEBUG \
+    --log-level INFO \
     --F=50 \
     --add_position_feature \
     --add_percent_completion_feature
@@ -177,7 +178,8 @@ python train_model.py \
     --dropout 0.5 \
     --image_feature_path video_features \
     --add_position_feature \
-    --add_percent_completion_feature
+    --add_percent_completion_feature \
+    --log-level DEBUG
 
 # regression
 python train_model.py \

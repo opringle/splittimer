@@ -115,6 +115,10 @@ python generate_training_samples.py \
     --max_negatives_per_positive $MAX_NEGATIVES \
     --num_augmented_positives_per_segment $NUM_AUGMENTED \
     --ignore_first_split
+if [ $? -ne 0 ]; then
+    echo "Error: generate_training_samples.py failed."
+    exit 1
+fi
 
 # Build the preprocess command with optional feature flags
 PREPROCESS_CMD="python preprocess_videos_into_samples.py \
@@ -136,6 +140,10 @@ fi
 
 # Run the second Python script: preprocess videos
 $PREPROCESS_CMD
+if [ $? -ne 0 ]; then
+    echo "Error: preprocess_videos_into_samples.py failed."
+    exit 1
+fi
 
 # Format alpha and beta values for directory name (replace . with _)
 ALPHA_SPLIT_0_DIR=${ALPHA_SPLIT_0//./_}
@@ -153,7 +161,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 # Construct artifacts directory path with timestamp and feature flags
 ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_frames_${CLIP_LENGTH}_augmented_${NUM_AUGMENTED}_${POS_FEATURE}_${PCT_FEATURE}_${TIMESTAMP}"
 
-# Run the third Python script: train classifier
+# Build the train command with optional feature flags
 TRAIN_CMD="python train_model.py \
     training_data_classification \
     --eval_interval $EVAL_INTERVAL \
@@ -178,7 +186,11 @@ if [ "$ADD_PERCENT_COMPLETION_FEATURE" = "true" ]; then
     TRAIN_CMD="$TRAIN_CMD --add_percent_completion_feature"
 fi
 
-# Run the second Python script: preprocess videos
+# Run the third Python script: train classifier
 $TRAIN_CMD
+if [ $? -ne 0 ]; then
+    echo "Error: train_model.py failed."
+    exit 1
+fi
 
-echo "Pipeline completed"
+echo "Pipeline completed successfully"

@@ -1,4 +1,5 @@
 from enum import Enum
+import logging
 from typing import Any, List, Dict, Tuple
 import numpy as np
 import torch
@@ -170,12 +171,16 @@ class ClassificationTrainer(Trainer):
         self.model.train()
         total_loss = 0.0
         for clip1, clip2, label in tqdm(dataloader, total=len(dataloader)):
+
             clip1 = clip1.to(self.device).squeeze()
             clip2 = clip2.to(self.device).squeeze()
             label = label.to(self.device).squeeze()
+            logging.debug(f"label.shape={label.shape}")
             self.optimizer.zero_grad()
             output = self.model(clip1, clip2).squeeze()
+            logging.debug(f"output.shape={output.shape}")
             loss = nn.BCEWithLogitsLoss()(output, label)
+            logging.debug(f"loss={loss}")
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
