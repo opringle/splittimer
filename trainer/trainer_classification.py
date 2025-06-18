@@ -9,10 +9,8 @@ from argparse import ArgumentParser, Namespace
 from torch.utils.data import DataLoader
 from collections import defaultdict
 
-from config import Config
-from sample_generator import get_sample_generator_class
 from sample_generator.sample_generator_classification import ClassifierSampleGenerator
-from utils import get_clip_indices_ending_at, get_video_file_path, get_video_fps_and_total_frames, load_image_features_from_disk, timecode_to_frames, frame_idx_to_timecode
+from utils import get_video_file_path, get_video_fps_and_total_frames, timecode_to_frames, frame_idx_to_timecode
 from .interface import Trainer
 from tqdm import tqdm
 

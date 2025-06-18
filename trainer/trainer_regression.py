@@ -39,7 +39,6 @@ class RegressionTrainer(Trainer):
         parser.add_argument('--post_lstm_sizes', type=str, default=None)
         parser.add_argument('--hidden_size', type=int, default=256)
         parser.add_argument('--dropout', type=float, default=0.0)
-        parser.add_argument('--lr', type=float, default=0.001)  # Learning rate
 
     @staticmethod
     def from_args(args: Any, dataloader: DataLoader) -> 'Trainer':
@@ -75,7 +74,7 @@ class RegressionTrainer(Trainer):
                 dropout=args.dropout
             ).to(self.device)
             self.optimizer = torch.optim.Adam(
-                self.model.parameters(), lr=args.lr)
+                self.model.parameters(), lr=args.learning_rate)
 
     ### Instance Methods ###
     def save(self, dir: str, checkpoint_idx: int) -> None:

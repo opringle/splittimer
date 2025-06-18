@@ -5,7 +5,7 @@ Alternatively I could have each clips features stored once. Then with some smart
 
 ## TODO
 
-- get classifier pipeline running
+- get classifier pipeline running reproducibly
 - get regression pipeline running
 - output predictions file for viewing from eval???
 - rewrite hyperopt for new code
