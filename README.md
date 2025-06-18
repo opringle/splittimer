@@ -6,6 +6,7 @@ Alternatively I could have each clips features stored once. Then with some smart
 ## TODO
 
 - do not pass training args to classes without naming them
+- add full eval to tensorboard
 - annotate more videos (ews runs too)
 
 ```bash
@@ -15,6 +16,8 @@ Alternatively I could have each clips features stored once. Then with some smart
 ./scripts/run_pipeline_regressor.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 3 --no-add_position_feature --no-add_percent_completion_feature
 ```
 
+Search for best hyperparams over entire training pipeline
+
 ```bash
 ./scripts/hyperparameter_search_classifier.sh \
   --alpha_split_0_range 0.5:0.1:0.7 \
@@ -23,6 +26,16 @@ Alternatively I could have each clips features stored once. Then with some smart
   --beta_range 0.5:0.1:0.7 \
   --clip_length_range 50:50:150 \
   --num_augmented_range 25:25:75 \
+  --add_position_feature_values true false \
+  --add_percent_completion_feature_values true false
+
+./scripts/hyperparameter_search_regressor.sh \
+  --alpha_split_0_range 0.5:0.1:0.5 \
+  --alpha_range 0.5:0.1:0.5 \
+  --beta_split_0_range 0.5:0.1:0.5 \
+  --beta_range 0.5:0.1:0.5 \
+  --clip_length_range 50:1:50 \
+  --num_augmented_range 2:2:10 \
   --add_position_feature_values true false \
   --add_percent_completion_feature_values true false
 ```
