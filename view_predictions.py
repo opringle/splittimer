@@ -6,21 +6,23 @@ from pathlib import Path
 import logging
 import shutil
 
-from utils import get_frame
+from utils import get_frame, get_video_file_path, get_video_fps_and_total_frames, timecode_to_frames
 
 logging.basicConfig(level=logging.INFO)
 
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Generate an HTML page to display predicted split frames from source and target videos.")
-    parser.add_argument('--predictions_json', required=True, help="Path to the predictions JSON file containing trackId, sourceRiderId, targetRiderId, and predicted_splits")
+    parser = argparse.ArgumentParser(
+        description="Generate an HTML page to display predicted split frames from source and target videos.")
+    parser.add_argument('--predictions_json', required=True,
+                        help="Path to the predictions JSON file containing trackId, sourceRiderId, sourceTimecodes, and predictions")
     return parser.parse_args()
+
 
 def load_predictions(json_path):
     with open(json_path, 'r') as f:
         return json.load(f)
 
-def get_video_path(trackId, riderId):
-    return f"downloaded_videos/{trackId}/{riderId}/{trackId}_{riderId}.mp4"
 
 def add_label(frame, text):
     height, width = frame.shape[:2]
@@ -31,78 +33,111 @@ def add_label(frame, text):
     text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
     text_x = (width - text_size[0]) // 2  # Center horizontally
     text_y = height - 10  # Near bottom
-    cv2.putText(frame, text, (text_x, text_y), font, font_scale, color, thickness)
+    cv2.putText(frame, text, (text_x, text_y),
+                font, font_scale, color, thickness)
     return frame
+
 
 def main():
     args = parse_args()
     json_path = Path(args.predictions_json)
     predictions_data = load_predictions(json_path)
-    
+
     # Extract metadata from JSON
     trackId = predictions_data.get('trackId')
     sourceRiderId = predictions_data.get('sourceRiderId')
-    targetRiderId = predictions_data.get('targetRiderId')
-    predicted_splits = predictions_data.get('predicted_splits', [])
-    
+    sourceTimecodes = predictions_data.get('sourceTimecodes', [])
+    predictions = predictions_data.get('predictions', {})
+
     # Check if required keys are present
-    if not all([trackId, sourceRiderId, targetRiderId]):
-        logging.error("Missing required keys in predictions JSON: trackId, sourceRiderId, targetRiderId")
+    if not all([trackId, sourceRiderId, sourceTimecodes, predictions]):
+        logging.error(
+            "Missing required keys in predictions JSON: trackId, sourceRiderId, sourceTimecodes, predictions")
         exit(1)
-    
-    if not isinstance(predicted_splits, list):
-        logging.error("predicted_splits is not a list or is missing in the JSON")
+
+    if not isinstance(sourceTimecodes, list):
+        logging.error(
+            "sourceTimecodes is not a list or is missing in the JSON")
         exit(1)
-    
-    if not predicted_splits:
-        logging.warning("No predicted splits found in the JSON file")
+
+    if not sourceTimecodes:
+        logging.warning("No source timecodes found in the JSON file")
         exit(0)
-    
+
     # Create directory for images and clean up if it already exists
     images_dir = json_path.parent / (json_path.stem + "_images")
     if images_dir.exists():
         shutil.rmtree(images_dir)  # Remove existing directory and its contents
     images_dir.mkdir()  # Create a new empty directory
-    
-    source_video_path = get_video_path(trackId, sourceRiderId)
-    target_video_path = get_video_path(trackId, targetRiderId)
-    
-    # Check if video files exist
+
+    # Get source video path and FPS
+    source_video_path = get_video_file_path(trackId, sourceRiderId)
+    source_fps, _ = get_video_fps_and_total_frames(source_video_path)
+
     if not Path(source_video_path).exists():
         logging.error(f"Source video file {source_video_path} does not exist")
         exit(1)
-    if not Path(target_video_path).exists():
-        logging.error(f"Target video file {target_video_path} does not exist")
-        exit(1)
-    
-    html_snippets = []
-    
-    # Process each prediction
-    for i, pred in enumerate(predicted_splits):
-        source_frame = get_frame(source_video_path, pred['source_end_idx'])
-        target_frame = get_frame(target_video_path, pred['target_end_idx'])
-        if source_frame is None or target_frame is None:
-            logging.warning(f"Could not retrieve frames for split {i+1}")
+
+    html_sections = []
+
+    # Process each target rider
+    for target_rider_id, predicted_timecodes in predictions.items():
+        if not isinstance(predicted_timecodes, list) or len(predicted_timecodes) != len(sourceTimecodes):
+            logging.warning(
+                f"Invalid or mismatched predicted timecodes for target rider {target_rider_id}")
             continue
-        labeled_source = add_label(source_frame, f"Source Split {i+1}: frame {pred['source_end_idx']}")
-        labeled_target = add_label(target_frame, f"Target Prediction {i+1}: frame {pred['target_end_idx']}")
-        pair = np.hstack([labeled_source, labeled_target])
-        image_path = images_dir / f"split_{i+1}.png"
-        cv2.imwrite(str(image_path), pair)
-        
-        caption = f"Source Frame: {pred['source_end_idx']}, Target Frame: {pred['target_end_idx']}"
-        if 'confidence' in pred:
-            caption += f", Confidence: {pred['confidence']:.2f}"
-        
-        snippet = f"""
-        <div class="split-container">
-            <img src="{images_dir.name}/split_{i+1}.png" alt="Split {i+1}" class="split-image">
-            <p class="caption">{caption}</p>
-        </div>
-        """
-        html_snippets.append(snippet)
-    
-    if html_snippets:
+
+        target_video_path = get_video_file_path(trackId, target_rider_id)
+        target_fps, _ = get_video_fps_and_total_frames(target_video_path)
+
+        if not Path(target_video_path).exists():
+            logging.warning(
+                f"Target video file {target_video_path} does not exist for rider {target_rider_id}")
+            continue
+
+        snippets = []
+        for i, (source_timecode, predicted_timecode) in enumerate(zip(sourceTimecodes, predicted_timecodes)):
+            if predicted_timecode is None:
+                continue  # Skip if no prediction
+            try:
+                source_frame_idx = timecode_to_frames(
+                    source_timecode, source_fps)
+                target_frame_idx = timecode_to_frames(
+                    predicted_timecode, target_fps)
+                source_frame = get_frame(source_video_path, source_frame_idx)
+                target_frame = get_frame(target_video_path, target_frame_idx)
+                if source_frame is None or target_frame is None:
+                    logging.warning(
+                        f"Could not retrieve frames for split {i+1} for rider {target_rider_id}")
+                    continue
+                labeled_source = add_label(
+                    source_frame, f"Source: {source_timecode}")
+                labeled_target = add_label(
+                    target_frame, f"Target: {predicted_timecode}")
+                pair = np.hstack([labeled_source, labeled_target])
+                image_path = images_dir / f"split_{target_rider_id}_{i+1}.png"
+                cv2.imwrite(str(image_path), pair)
+
+                caption = f"Source Timecode: {source_timecode}, Predicted Target Timecode: {predicted_timecode}"
+                snippet = f"""
+                <div class="split-container">
+                    <img src="{images_dir.name}/split_{target_rider_id}_{i+1}.png" alt="Split {i+1}" class="split-image">
+                    <p class="caption">{caption}</p>
+                </div>
+                """
+                snippets.append(snippet)
+            except Exception as e:
+                logging.error(
+                    f"Error processing split {i+1} for rider {target_rider_id}: {e}")
+
+        if snippets:
+            section = f"""
+            <h2>Target Rider: {target_rider_id}</h2>
+            {''.join(snippets)}
+            """
+            html_sections.append(section)
+
+    if html_sections:
         html_content = f"""
         <!DOCTYPE html>
         <html lang="en">
@@ -129,8 +164,8 @@ def main():
             </style>
         </head>
         <body>
-            <h1>Predicted Splits for Track: {trackId}, Source: {sourceRiderId}, Target: {targetRiderId}</h1>
-            {''.join(html_snippets)}
+            <h1>Predicted Splits for Track: {trackId}, Source: {sourceRiderId}</h1>
+            {''.join(html_sections)}
         </body>
         </html>
         """
@@ -139,7 +174,8 @@ def main():
             f.write(html_content)
         logging.info(f"Saved HTML file to {html_path}")
     else:
-        logging.warning("No splits to display")
+        logging.warning("No valid splits to display")
+
 
 if __name__ == "__main__":
     main()

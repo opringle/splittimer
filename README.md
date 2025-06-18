@@ -6,9 +6,6 @@ Alternatively I could have each clips features stored once. Then with some smart
 ## TODO
 
 - do not pass training args to classes without naming them
-- get regression pipeline running
-- output predictions file for viewing from eval???
-- rewrite hyperopt for new code
 - annotate more videos (ews runs too)
 
 ```bash
@@ -187,8 +184,7 @@ python train_model.py \
     --image_feature_path video_features \
     --add_position_feature \
     --add_percent_completion_feature \
-    --log-level DEBUG \
-    --resume_from ./artifacts/experiment_20250618_071021/checkpoints/checkpoint_0.pt
+    --log-level DEBUG
 ```
 
 Evaluate

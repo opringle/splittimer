@@ -8,6 +8,7 @@ from config import Config
 from sample_generator import get_sample_generator_class
 from trainer import get_trainer_class
 from utils import get_default_device_name, get_video_file_path, get_video_fps_and_total_frames, log_dict, setup_logging, setup_seed, timecode_to_frames, timecode_to_seconds
+import json
 
 
 def worker_init_fn(worker_id):
@@ -52,27 +53,39 @@ def main():
     trainer, _ = TrainerClass.load(args.checkpoint_path, args.device)
 
     source_timecodes = config.get_timecodes(args.trackId, args.sourceRiderId)
+    source_timecodes_sliced = source_timecodes[1:]  # Ignore the first split
     target_rid_to_timecodes = {rid: config.get_timecodes(
         args.trackId, rid) for rid in args.targetRiderIds}
 
+    predictions_dict = {}
     mean_absolute_error_sum = 0
     for target_rider_id, actual_timecodes in tqdm(target_rid_to_timecodes.items(), desc="Target rider predictions"):
-        target_video_path = get_video_file_path(
-            args.trackId, target_rider_id)
+        target_video_path = get_video_file_path(args.trackId, target_rider_id)
         target_fps, _ = get_video_fps_and_total_frames(target_video_path)
 
-        # ignore the first split
-        source_timecodes, actual_timecodes = source_timecodes[1:], actual_timecodes[1:]
+        # Ignore the first split
+        actual_timecodes_sliced = actual_timecodes[1:]
 
         predicted_timecodes = trainer.predict_timecodes(
-            args.trackId, args.sourceRiderId, source_timecodes, target_rider_id)
+            args.trackId, args.sourceRiderId, source_timecodes_sliced, target_rider_id)
+        predictions_dict[target_rider_id] = predicted_timecodes
 
         mean_absolute_error_sum += mean_absolute_error_seconds(
-            predicted_timecodes, actual_timecodes, target_fps)
+            predicted_timecodes, actual_timecodes_sliced, target_fps)
 
     metrics = {'macro_mean_absolute_error_seconds': mean_absolute_error_sum /
                len(target_rid_to_timecodes)}
     log_dict(f"Model achieves metrics:", metrics)
+
+    output_data = {
+        "trackId": args.trackId,
+        "sourceRiderId": args.sourceRiderId,
+        "sourceTimecodes": source_timecodes_sliced,
+        "predictions": predictions_dict
+    }
+    with open(args.output_file, 'w') as f:
+        json.dump(output_data, f, indent=4)
+    logging.info(f"Predictions written to {args.output_file}")
 
 
 def mean_absolute_error_seconds(predicted_timecodes: List[str], actual_timecodes: List[str], fps: float) -> float:
@@ -81,16 +94,15 @@ def mean_absolute_error_seconds(predicted_timecodes: List[str], actual_timecodes
         f"Computing MAE (seconds) between predictions: {predicted_timecodes} & labels: {actual_timecodes}")
     # Convert timecodes to total seconds
     predicted_seconds = [timecode_to_seconds(
-        tc, fps) for tc in predicted_timecodes]
+        tc, fps) if tc is not None else None for tc in predicted_timecodes]
     actual_seconds = [timecode_to_seconds(tc, fps) for tc in actual_timecodes]
 
-    # Compute absolute differences
-    abs_diff_seconds = [abs(p - a)
-                        for p, a in zip(predicted_seconds, actual_seconds)]
-
-    # Handle empty list case and compute mean
-    if len(abs_diff_seconds) == 0:
+    # Filter out None predictions
+    valid_pairs = [(p, a) for p, a in zip(
+        predicted_seconds, actual_seconds) if p is not None]
+    if not valid_pairs:
         return 0.0
+    abs_diff_seconds = [abs(p - a) for p, a in valid_pairs]
     return sum(abs_diff_seconds) / len(abs_diff_seconds)
 
 
