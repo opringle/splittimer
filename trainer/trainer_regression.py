@@ -250,7 +250,7 @@ class RegressionTrainer(Trainer):
                         [torch.from_numpy(s[3]) for s in samples]).to(self.device)
                     with torch.no_grad():
                         outputs = self.model(clip1_batch, clip2_batch)
-                        offsets = outputs.squeeze().cpu().numpy()
+                        offsets = outputs.squeeze(-1).cpu().numpy()
                     for (stc, v2_idx, _, _), offs in zip(samples, offsets):
                         predictions[stc].append((v2_idx, offs))
                     samples = []
@@ -263,7 +263,7 @@ class RegressionTrainer(Trainer):
                 [torch.from_numpy(s[3]) for s in samples]).to(self.device)
             with torch.no_grad():
                 outputs = self.model(clip1_batch, clip2_batch)
-                offsets = outputs.squeeze().cpu().numpy()
+                offsets = outputs.squeeze(-1).cpu().numpy()
             for (stc, v2_idx, _, _), offs in zip(samples, offsets):
                 predictions[stc].append((v2_idx, offs))
 

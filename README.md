@@ -195,10 +195,10 @@ python evaluate.py \
     video_config.yaml \
     video_features \
     predictions.json \
-    --trackId leogang_2025 \
-    --sourceRiderId asa_vermette \
-    --targetRiderIds jordan_williams gracey_hemstreet laurie_greenland vali_holl \
-    --checkpoint_path ./artifacts/experiment_20250617_162721/checkpoints/checkpoint_0.pt \
+    --trackId mont_sainte_anne_2024 \
+    --sourceRiderId loic_bruni \
+    --targetRiderIds troy_brosnan lachlan_stevens_mcnab max_alran vali_holl \
+    --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250618_073653/checkpoints/checkpoint_2.pt \
     --trainer_type classifier \
     --image_feature_path video_features \
     --log-level DEBUG
