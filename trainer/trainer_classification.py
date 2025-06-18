@@ -4,13 +4,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from torch.utils.data import DataLoader
+from collections import defaultdict
 
 from config import Config
 from sample_generator import get_sample_generator_class
 from sample_generator.sample_generator_classification import ClassifierSampleGenerator
-from utils import get_clip_indices_ending_at, get_video_file_path, get_video_fps_and_total_frames, load_image_features_from_disk, timecode_to_frames
+from utils import get_clip_indices_ending_at, get_video_file_path, get_video_fps_and_total_frames, load_image_features_from_disk, timecode_to_frames, frame_idx_to_timecode
 from .interface import Trainer
 from tqdm import tqdm
 
@@ -45,10 +46,10 @@ class ClassificationTrainer(Trainer):
         parser.add_argument('--lr', type=float, default=0.001)  # Learning rate
 
         parser.add_argument('--image_feature_path', type=str, required=True)
-        parser.add_argument('--add_position_feature', type=bool,
+        parser.add_argument('--add_position_feature',
                             action='store_true', default=False)
         parser.add_argument('--add_percent_completion_feature',
-                            type=bool,  action='store_true', default=False)
+                            action='store_true', default=False)
 
     @staticmethod
     def from_args(args: Any, dataloader: DataLoader) -> 'Trainer':
@@ -56,19 +57,24 @@ class ClassificationTrainer(Trainer):
         return ClassificationTrainer(args, dataloader)
 
     ### Initialization ###
-    def __init__(self, args=None, dataloader=None, model=None, optimizer=None, device=None):
-        """Initialize the trainer with args and dataloader or pre-loaded model and optimizer."""
-        if model is not None and optimizer is not None and device is not None:
+    def __init__(self, args, dataloader=None, model=None, optimizer=None, device=None):
+        """Initialize the trainer with args and optionally dataloader, model, optimizer, and device."""
+        if args is None:
+            raise ValueError("args must be provided and cannot be None.")
+        self.args = args
+        self.device = device if device is not None else args.device
+        self.clip_length = getattr(args, 'clip_length', None)
+
+        if model is not None and optimizer is not None:
             self.model = model
             self.optimizer = optimizer
-            self.device = device
-            # TODO: require argsDo not allow to be None. Persist in save method and reload in load method
+            self.image_feature_path = args.image_feature_path
+            self.add_position_feature = args.add_position_feature
+            self.add_percent_completion_feature = args.add_percent_completion_feature
         else:
-            if args is None or dataloader is None:
+            if dataloader is None:
                 raise ValueError(
-                    "args and dataloader must be provided if model and optimizer are not.")
-            self.args = args
-            self.device = args.device
+                    "dataloader must be provided if model and optimizer are not.")
             compress_sizes = [int(x) for x in args.compress_sizes.split(
                 ',')] if args.compress_sizes else []
             post_lstm_sizes = [int(x) for x in args.post_lstm_sizes.split(
@@ -79,7 +85,6 @@ class ClassificationTrainer(Trainer):
             self.image_feature_path = args.image_feature_path
             self.add_position_feature = args.add_position_feature
             self.add_percent_completion_feature = args.add_percent_completion_feature
-
             self.model = ClassifierModel(
                 input_size=input_size,
                 hidden_size=args.hidden_size,
@@ -94,21 +99,37 @@ class ClassificationTrainer(Trainer):
 
     ### Instance Methods ###
     def save(self, dir: str, checkpoint_idx: int) -> None:
-        """Save the trainer's state to a checkpoint file."""
+        """Save the trainer's state to a checkpoint file, including args and clip_length."""
         path = f"{dir}/checkpoint_{checkpoint_idx}.pt"
-        self.model.save(path, checkpoint_idx, self.optimizer)
+        args_dict = vars(self.args).copy()
+        if self.clip_length is not None:
+            args_dict['clip_length'] = self.clip_length
+        additional_info = {'args': args_dict}
+        self.model.save(path, checkpoint_idx, self.optimizer, additional_info)
 
     @staticmethod
     def load(checkpoint_path: str, device: str) -> Tuple['Trainer', int]:
-        """Load the trainer from a checkpoint file."""
-        # TODO: read args and use in instantiation
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model, epoch, optimizer_state_dict = ClassifierModel.load(
-            checkpoint_path, device)
+        """Load the trainer from a checkpoint file, using saved args."""
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model_config = checkpoint['model_config']
+        interaction_type = InteractionType(model_config['interaction_type'])
+        model = ClassifierModel(
+            input_size=model_config['input_size'],
+            hidden_size=model_config['hidden_size'],
+            interaction_type=interaction_type,
+            bidirectional=model_config['bidirectional'],
+            compress_sizes=model_config['compress_sizes'],
+            post_lstm_sizes=model_config['post_lstm_sizes'],
+            dropout=model_config['dropout']
+        ).to(device)
+        model.load_state_dict(checkpoint['model_state_dict'])
         optimizer = torch.optim.Adam(model.parameters())
-        optimizer.load_state_dict(optimizer_state_dict)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        args_dict = checkpoint['args']
+        args = Namespace(**args_dict)
         trainer = ClassificationTrainer(
-            model=model, optimizer=optimizer, device=device)
+            args=args, model=model, optimizer=optimizer, device=device)
+        epoch = checkpoint['epoch']
         return trainer, epoch
 
     @staticmethod
@@ -148,7 +169,7 @@ class ClassificationTrainer(Trainer):
         """Perform a forward and backward pass for training, returning extended metrics."""
         self.model.train()
         total_loss = 0.0
-        for clip1, clip2, label in tqdm(dataloader):
+        for clip1, clip2, label in tqdm(dataloader, total=len(dataloader)):
             clip1 = clip1.to(self.device).squeeze()
             clip2 = clip2.to(self.device).squeeze()
             label = label.to(self.device).squeeze()
@@ -168,7 +189,7 @@ class ClassificationTrainer(Trainer):
         all_labels = []
         total_loss = 0.0
         with torch.no_grad():
-            for clip1, clip2, label in tqdm(dataloader):
+            for clip1, clip2, label in tqdm(dataloader, total=len(dataloader)):
                 clip1 = clip1.to(self.device).squeeze()
                 clip2 = clip2.to(self.device).squeeze()
                 label = label.to(self.device).squeeze()
@@ -186,45 +207,87 @@ class ClassificationTrainer(Trainer):
         return metrics
 
     def predict_timecodes(self, track_id: str, source_rider_id: str, source_timecodes: List[str], target_rider_id: str) -> List[str]:
-        # Construct batches of samples for prediction
-        # TODO: instantiate the sample generator
-        sample_generator = ClassifierSampleGenerator(args={
+        """Predict target timecodes corresponding to source timecodes using the trained model."""
+        self.model.eval()
+        sample_generator = ClassifierSampleGenerator(args=Namespace(**{
             'F': self.clip_length,
             'image_feature_path': self.image_feature_path,
             'add_position_feature': self.add_position_feature,
             'add_percent_completion_feature': self.add_percent_completion_feature,
-        })
+        }))
         video_feature_cache = {}
+        source_video_path = get_video_file_path(track_id, source_rider_id)
+        source_fps, _ = get_video_fps_and_total_frames(source_video_path)
+        target_video_path = get_video_file_path(track_id, target_rider_id)
+        target_fps, target_total_frames = get_video_fps_and_total_frames(
+            target_video_path)
+
+        predictions = defaultdict(list)
+        batch_size = 32
+        samples = []
+
+        # ignore the first split
         for source_timecode in source_timecodes:
-            source_video_path = get_video_file_path(
-                track_id, source_rider_id)
-            source_fps, _ = get_video_fps_and_total_frames(source_video_path)
             v1_frame_idx = timecode_to_frames(source_timecode, source_fps)
-            target_video_path = get_video_file_path(
-                track_id, target_rider_id)
-            target_fps, target_total_frames = get_video_fps_and_total_frames(
-                target_video_path)
             for v2_frame_idx in range(target_total_frames):
+                if v1_frame_idx < self.clip_length - 1 or v2_frame_idx < self.clip_length - 1:
+                    continue
                 row_dict = {
                     'track_id': track_id,
                     'v1_rider_id': source_rider_id,
                     'v2_rider_id': target_rider_id,
                     'v1_frame_idx': v1_frame_idx,
                     'v2_frame_idx': v2_frame_idx,
-                    'label': 0.0,  # dummy value,
+                    'label': 0.0,  # dummy value
                 }
-                sample = sample_generator.get_features(
+                clip1, clip2, _ = sample_generator.get_features(
                     video_feature_cache, **row_dict)
+                samples.append((source_timecode, v2_frame_idx, clip1, clip2))
+                if len(samples) == batch_size:
+                    clip1_batch = torch.stack(
+                        [torch.from_numpy(s[2]) for s in samples]).to(self.device)
+                    clip2_batch = torch.stack(
+                        [torch.from_numpy(s[3]) for s in samples]).to(self.device)
+                    with torch.no_grad():
+                        outputs = self.model(clip1_batch, clip2_batch)
+                        probabilities = torch.sigmoid(
+                            outputs).squeeze().cpu().numpy()
+                    for (stc, v2_idx, _, _), prob in zip(samples, probabilities):
+                        predictions[stc].append((v2_idx, prob))
+                    samples = []
 
-                # TODO: add to a list of batch of samples of size batch_size
+        # Process remaining samples
+        if samples:
+            clip1_batch = torch.stack(
+                [torch.from_numpy(s[2]) for s in samples]).to(self.device)
+            clip2_batch = torch.stack(
+                [torch.from_numpy(s[3]) for s in samples]).to(self.device)
+            with torch.no_grad():
+                outputs = self.model(clip1_batch, clip2_batch)
+                probabilities = torch.sigmoid(outputs).squeeze().cpu().numpy()
+            for (stc, v2_idx, _, _), prob in zip(samples, probabilities):
+                predictions[stc].append((v2_idx, prob))
 
-        # TODO: Loop through batches making predictions with self.model
+        # Get highest confidence prediction per source_timecode
+        predicted_frame_indices = {}
+        for stc, preds in predictions.items():
+            if preds:
+                v2_idx, _ = max(preds, key=lambda x: x[1])
+                predicted_frame_indices[stc] = v2_idx
+            else:
+                predicted_frame_indices[stc] = None
 
-        # TODO: Get highest confidence prediction per source_timecode
+        # Convert to timecodes
+        predicted_timecodes = []
+        for stc in source_timecodes:
+            v2_frame_idx = predicted_frame_indices.get(stc)
+            if v2_frame_idx is not None:
+                timecode = frame_idx_to_timecode(v2_frame_idx, target_fps)
+                predicted_timecodes.append(timecode)
+            else:
+                predicted_timecodes.append(None)
 
-        # TODO: convert timecodes to frame indices using util frame_idx_to_timecode(frame_index, fps)
-
-        # TODO: return a list of string timecodes where len == len(source_timecodes)
+        return predicted_timecodes
 
 
 class InteractionType(Enum):
@@ -316,8 +379,8 @@ class ClassifierModel(nn.Module):
             raise ValueError("Invalid interaction_type")
         return output
 
-    def save(self, path, epoch, optimizer):
-        # TODO: save args for reinstantiation
+    def save(self, path, epoch, optimizer, additional_info=None):
+        """Save the model state along with additional information."""
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.state_dict(),
@@ -333,6 +396,8 @@ class ClassifierModel(nn.Module):
                 'interaction_type': self.interaction_type.value,
             }
         }
+        if additional_info:
+            checkpoint.update(additional_info)
         torch.save(checkpoint, path)
 
     @classmethod

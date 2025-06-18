@@ -39,23 +39,17 @@ def main():
                         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     parser.add_argument('--trainer_type', type=str, required=True,
                         help='Type of model to train')
-    parser.add_argument('--sample_generator_type', type=str, required=True,
-                        help='Type of generator')
 
     args, _ = parser.parse_known_args()
     TrainerClass = get_trainer_class(args.trainer_type)
     TrainerClass.add_args(parser)
-
-    SampleGeneratorClass = get_sample_generator_class(
-        args.sample_generator_type)
-    SampleGeneratorClass.add_args(parser)
 
     args = parser.parse_args()
 
     setup_logging(args.log_level)
     config = Config(args.config_path)
 
-    trainer = TrainerClass.load(args.checkpoint_path, args.device)
+    trainer, _ = TrainerClass.load(args.checkpoint_path, args.device)
 
     source_timecodes = config.get_timecodes(args.trackId, args.sourceRiderId)
     target_rid_to_timecodes = {rid: config.get_timecodes(
@@ -67,12 +61,14 @@ def main():
             args.trackId, target_rider_id)
         target_fps, _ = get_video_fps_and_total_frames(target_video_path)
 
+        # ignore the first split
+        source_timecodes, actual_timecodes = source_timecodes[1:], actual_timecodes[1:]
+
         predicted_timecodes = trainer.predict_timecodes(
             args.trackId, args.sourceRiderId, source_timecodes, target_rider_id)
 
-        mean_absolute_error_seconds = mean_absolute_error_seconds(
+        mean_absolute_error_sum += mean_absolute_error_seconds(
             predicted_timecodes, actual_timecodes, target_fps)
-        mean_absolute_error_sum += mean_absolute_error_seconds
 
     metrics = {'macro_mean_absolute_error_seconds': mean_absolute_error_sum /
                len(target_rid_to_timecodes)}
@@ -81,6 +77,8 @@ def main():
 
 def mean_absolute_error_seconds(predicted_timecodes: List[str], actual_timecodes: List[str], fps: float) -> float:
     """Compute the mean absolute error in seconds between two lists of timecodes."""
+    logging.debug(
+        f"Computing MAE (seconds) between predictions: {predicted_timecodes} & labels: {actual_timecodes}")
     # Convert timecodes to total seconds
     predicted_seconds = [timecode_to_seconds(
         tc, fps) for tc in predicted_timecodes]

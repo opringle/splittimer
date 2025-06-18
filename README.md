@@ -5,16 +5,29 @@ Alternatively I could have each clips features stored once. Then with some smart
 
 ## TODO
 
-- refactor python files to interface implementations
-  - model.save() & model.load() should have single arg (path)
-  -
-- rewrite pipeline and hyperopt for new code
+- get regression pipeline running
+- fix view_predictions
+- rewrite hyperopt for new code
 - annotate more videos (ews runs too)
 
 ```bash
 # best combo: step 7 (epoch 8) 0.905 macro F1 score on validation data
-./run_pipeline.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
+./scripts/run_pipeline_classifier.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 
+python evaluate.py \
+    "$CONFIG" \
+    video_features \
+    predictions.json \
+    --trackId leogang_2025 \
+    --sourceRiderId asa_vermette \
+    --targetRiderIds jordan_williams gracey_hemstreet laurie_greenland vali_holl \
+    --checkpoint_path ./artifacts/experiment_20250617_162721/checkpoints/checkpoint_0.pt \
+    --log-level INFO \
+    --trainer_type classifier \
+    --image_feature_path video_features
+```
+
+```
 ./hyperparameter_search.sh \
   --alpha_split_0_range 0.5:0.1:0.7 \
   --alpha_range 0.5:0.1:0.7 \
@@ -186,28 +199,19 @@ Evaluate
 ```bash
 # classification
 python evaluate.py \
-    video_config.yaml \
+    "$CONFIG" \
     video_features \
     predictions.json \
     --trackId leogang_2025 \
     --sourceRiderId asa_vermette \
-    --targetRiderIds jordan_williams \
-    --checkpoint_path ./artifacts/experiment_20250617_063046/checkpoints/checkpoint_0.pt \
+    --targetRiderIds jordan_williams gracey_hemstreet laurie_greenland vali_holl \
+    --checkpoint_path ./artifacts/experiment_20250617_162721/checkpoints/checkpoint_0.pt \
     --log-level INFO \
     --trainer_type classifier \
-    --sample_generator_type classifier
+    --image_feature_path video_features
 
-# regressor
-python evaluate.py \
-
-
-
-
-python find_splits.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth
-
-python find_splits.py video_config.yaml video_features predictions.json --trackId loudenvielle_2025 --F 50 --sourceRiderId amaury_pierron --targetRiderId joe_breeden --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250611_205932/checkpoints/checkpoint_epoch_8.pth
-
-python find_splits_regression.py video_config.yaml video_features predictions.json --trackId leogang_2025 --F 50 --sourceRiderId asa_vermette --targetRiderId jordan_williams --checkpoint_path artifacts/experiment_20250612_061757/checkpoints/checkpoint_epoch_2.pth
+# regressor TODO
+python evaluate.py ...
 ```
 
 View the predictions

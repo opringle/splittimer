@@ -30,7 +30,7 @@ class Config:
         return trackid_to_video_metadatas
 
     def get_unique_track_ids(self):
-        return list(set(video["trackId"] for video in self.videos))
+        return sorted(set(video["trackId"] for video in self.videos))
 
     def get_timecodes(self, track_id: str, rider_id: str) -> List[str]:
         matching_videos = [

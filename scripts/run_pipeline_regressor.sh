@@ -102,28 +102,30 @@ echo "Running pipeline with alpha_split_0=$ALPHA_SPLIT_0, alpha=$ALPHA, beta_spl
 # Run the first Python script: generate training samples
 python generate_training_samples.py \
     --config "$CONFIG" \
+    --val_ratio 0.2 \
+    --log-level INFO \
+    --seed $SEED \
+    --output_path training_data/metadata_classification.csv \
+    --preprocessor_type classifier \
     --clip-length $CLIP_LENGTH \
-    --ignore_first_split \
-    --max_negatives_per_positive $MAX_NEGATIVES \
-    --num_augmented_positives_per_segment $NUM_AUGMENTED \
     --alpha_split_0 $ALPHA_SPLIT_0 \
     --alpha $ALPHA \
     --beta_split_0 $BETA_SPLIT_0 \
     --beta $BETA \
-    --seed $SEED
-
-# Clean up training data directories
-rm -rf ./training_data/train
-rm -rf ./training_data/val
+    --max_negatives_per_positive $MAX_NEGATIVES \
+    --num_augmented_positives_per_segment $NUM_AUGMENTED \
+    --ignore_first_split
 
 # Build the preprocess command with optional feature flags
 PREPROCESS_CMD="python preprocess_videos_into_samples.py \
-    training_data/training_metadata.csv \
+    training_data/metadata_classification.csv \
     video_features \
-    training_data \
-    --F=$CLIP_LENGTH \
+    training_data_classification \
+    --seed $SEED \
     --batch_size=$BATCH_SIZE \
-    --seed $SEED"
+    --sample_generator_type classifier \
+    --log-level INFO \
+    --F=$CLIP_LENGTH"
 
 if [ "$ADD_POSITION_FEATURE" = "true" ]; then
     PREPROCESS_CMD="$PREPROCESS_CMD --add_position_feature"
@@ -152,19 +154,30 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_frames_${CLIP_LENGTH}_augmented_${NUM_AUGMENTED}_${POS_FEATURE}_${PCT_FEATURE}_${TIMESTAMP}"
 
 # Run the third Python script: train classifier
-python train_position_classifier.py \
-    training_data \
+TRAIN_CMD="python train_model.py \
+    training_data_classification \
+    --eval_interval 1 \
+    --checkpoint_interval 1 \
+    --num_epochs 15 \
+    --seed $SEED \
+    --learning_rate $LEARNING_RATE \
+    --trainer_type classifier \
     $BIDIRECTIONAL \
     --compress_sizes $COMPRESS_SIZES \
     --interaction_type $INTERACTION_TYPE \
     --hidden_size $HIDDEN_SIZE \
     --post_lstm_sizes $POST_LSTM_SIZES \
-    --learning_rate $LEARNING_RATE \
     --dropout $DROPOUT \
-    --eval_interval $EVAL_INTERVAL \
-    --artifacts_dir $ARTIFACTS_DIR \
-    --checkpoint_interval 1 \
-    --seed $SEED \
-    --num_epochs 25
+    --image_feature_path video_features"
+
+if [ "$ADD_POSITION_FEATURE" = "true" ]; then
+    TRAIN_CMD="$TRAIN_CMD --add_position_feature"
+fi
+if [ "$ADD_PERCENT_COMPLETION_FEATURE" = "true" ]; then
+    TRAIN_CMD="$TRAIN_CMD --add_percent_completion_feature"
+fi
+
+# Run the second Python script: preprocess videos
+$TRAIN_CMD
 
 echo "Pipeline completed"
