@@ -133,7 +133,7 @@ for alpha_split_0 in "${alpha_split_0_values[@]}"; do
                         for add_position_feature in "${add_position_feature_values[@]}"; do
                             for add_percent_completion_feature in "${add_percent_completion_feature_values[@]}"; do
                                 # Construct the command
-                                cmd="./run_pipeline.sh --alpha_split_0 $alpha_split_0 --alpha $alpha --beta_split_0 $beta_split_0 --beta $beta --clip_length $clip_length --num_augmented $num_augmented"
+                                cmd="./run_pipeline_classifier.sh --alpha_split_0 $alpha_split_0 --alpha $alpha --beta_split_0 $beta_split_0 --beta $beta --clip_length $clip_length --num_augmented $num_augmented"
                                 if [ "$add_position_feature" = "true" ]; then
                                     cmd="$cmd --add_position_feature"
                                 else

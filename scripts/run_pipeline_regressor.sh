@@ -84,7 +84,6 @@ fi
 
 # Base command parameters
 CONFIG="video_config.yaml"
-MAX_NEGATIVES=1
 SEED=1
 BATCH_SIZE=32
 BIDIRECTIONAL="--bidirectional"
@@ -105,25 +104,29 @@ python generate_training_samples.py \
     --val_ratio 0.2 \
     --log-level INFO \
     --seed $SEED \
-    --output_path training_data/metadata_classification.csv \
-    --preprocessor_type classifier \
+    --output_path training_data/metadata_regression.csv \
+    --preprocessor_type regressor \
     --clip-length $CLIP_LENGTH \
     --alpha_split_0 $ALPHA_SPLIT_0 \
     --alpha $ALPHA \
     --beta_split_0 $BETA_SPLIT_0 \
     --beta $BETA \
-    --max_negatives_per_positive $MAX_NEGATIVES \
     --num_augmented_positives_per_segment $NUM_AUGMENTED \
+    --num_non_overlapping_samples_per_positive 0 \
     --ignore_first_split
+if [ $? -ne 0 ]; then
+    echo "Error: generate_training_samples.py failed."
+    exit 1
+fi
 
 # Build the preprocess command with optional feature flags
 PREPROCESS_CMD="python preprocess_videos_into_samples.py \
-    training_data/metadata_classification.csv \
+    training_data/metadata_regression.csv \
     video_features \
-    training_data_classification \
+    training_data_regression \
     --seed $SEED \
     --batch_size=$BATCH_SIZE \
-    --sample_generator_type classifier \
+    --sample_generator_type regressor \
     --log-level INFO \
     --F=$CLIP_LENGTH"
 
@@ -136,6 +139,10 @@ fi
 
 # Run the second Python script: preprocess videos
 $PREPROCESS_CMD
+if [ $? -ne 0 ]; then
+    echo "Error: preprocess_videos_into_samples.py failed."
+    exit 1
+fi
 
 # Format alpha and beta values for directory name (replace . with _)
 ALPHA_SPLIT_0_DIR=${ALPHA_SPLIT_0//./_}
@@ -153,15 +160,16 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 # Construct artifacts directory path with timestamp and feature flags
 ARTIFACTS_DIR="artifacts/alpha0_${ALPHA_SPLIT_0_DIR}_alpha_${ALPHA_DIR}_beta0_${BETA_SPLIT_0_DIR}_beta_${BETA_DIR}_frames_${CLIP_LENGTH}_augmented_${NUM_AUGMENTED}_${POS_FEATURE}_${PCT_FEATURE}_${TIMESTAMP}"
 
-# Run the third Python script: train classifier
+# Build the train command with optional feature flags
 TRAIN_CMD="python train_model.py \
-    training_data_classification \
-    --eval_interval 1 \
+    training_data_regression \
+    --eval_interval $EVAL_INTERVAL \
     --checkpoint_interval 1 \
     --num_epochs 15 \
     --seed $SEED \
+    --artifacts_dir $ARTIFACTS_DIR \
     --learning_rate $LEARNING_RATE \
-    --trainer_type classifier \
+    --trainer_type regressor \
     $BIDIRECTIONAL \
     --compress_sizes $COMPRESS_SIZES \
     --interaction_type $INTERACTION_TYPE \
@@ -177,7 +185,10 @@ if [ "$ADD_PERCENT_COMPLETION_FEATURE" = "true" ]; then
     TRAIN_CMD="$TRAIN_CMD --add_percent_completion_feature"
 fi
 
-# Run the second Python script: preprocess videos
 $TRAIN_CMD
+if [ $? -ne 0 ]; then
+    echo "Error: train_model.py failed."
+    exit 1
+fi
 
-echo "Pipeline completed"
+echo "Pipeline completed successfully"

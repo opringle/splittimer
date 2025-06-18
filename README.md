@@ -5,7 +5,7 @@ Alternatively I could have each clips features stored once. Then with some smart
 
 ## TODO
 
-- get classifier pipeline running reproducibly
+- do not pass training args to classes without naming them
 - get regression pipeline running
 - output predictions file for viewing from eval???
 - rewrite hyperopt for new code
@@ -15,21 +15,11 @@ Alternatively I could have each clips features stored once. Then with some smart
 # best combo: step 7 (epoch 8) 0.905 macro F1 score on validation data
 ./scripts/run_pipeline_classifier.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 
-python evaluate.py \
-    "$CONFIG" \
-    video_features \
-    predictions.json \
-    --trackId leogang_2025 \
-    --sourceRiderId asa_vermette \
-    --targetRiderIds jordan_williams gracey_hemstreet laurie_greenland vali_holl \
-    --checkpoint_path ./artifacts/experiment_20250617_162721/checkpoints/checkpoint_0.pt \
-    --log-level INFO \
-    --trainer_type classifier \
-    --image_feature_path video_features
+./scripts/run_pipeline_regressor.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 3 --no-add_position_feature --no-add_percent_completion_feature
 ```
 
-```
-./hyperparameter_search.sh \
+```bash
+./scripts/hyperparameter_search_classifier.sh \
   --alpha_split_0_range 0.5:0.1:0.7 \
   --alpha_range 0.5:0.1:0.7 \
   --beta_split_0_range 0.5:0.1:0.7 \
@@ -142,10 +132,10 @@ python preprocess_videos_into_samples.py \
     --seed=42 \
     --batch_size=32 \
     --sample_generator_type classifier \
-    --log-level INFO \
     --F=50 \
     --add_position_feature \
-    --add_percent_completion_feature
+    --add_percent_completion_feature \
+    --log-level DEBUG
 
 python preprocess_videos_into_samples.py \
     training_data/metadata_regression.csv \
@@ -154,10 +144,10 @@ python preprocess_videos_into_samples.py \
     --seed=42 \
     --batch_size=32 \
     --sample_generator_type regressor \
-    --log-level DEBUG \
     --F=50 \
     --add_position_feature \
-    --add_percent_completion_feature
+    --add_percent_completion_feature \
+    --log-level DEBUG
 ```
 
 Train and evaluate a model on the data
@@ -193,7 +183,12 @@ python train_model.py \
     --interaction_type mlp \
     --hidden_size 128 \
     --post_lstm_sizes 64 \
-    --dropout 0.5
+    --dropout 0.5 \
+    --image_feature_path video_features \
+    --add_position_feature \
+    --add_percent_completion_feature \
+    --log-level DEBUG \
+    --resume_from ./artifacts/experiment_20250618_071021/checkpoints/checkpoint_0.pt
 ```
 
 Evaluate
@@ -201,19 +196,29 @@ Evaluate
 ```bash
 # classification
 python evaluate.py \
-    "$CONFIG" \
+    video_config.yaml \
     video_features \
     predictions.json \
     --trackId leogang_2025 \
     --sourceRiderId asa_vermette \
     --targetRiderIds jordan_williams gracey_hemstreet laurie_greenland vali_holl \
     --checkpoint_path ./artifacts/experiment_20250617_162721/checkpoints/checkpoint_0.pt \
-    --log-level INFO \
     --trainer_type classifier \
-    --image_feature_path video_features
+    --image_feature_path video_features \
+    --log-level DEBUG
 
-# regressor TODO
-python evaluate.py ...
+# regressor
+python evaluate.py \
+    video_config.yaml \
+    video_features \
+    predictions.json \
+    --trackId leogang_2025 \
+    --sourceRiderId asa_vermette \
+    --targetRiderIds jordan_williams gracey_hemstreet laurie_greenland vali_holl \
+    --checkpoint_path ./artifacts/experiment_20250618_071021/checkpoints/checkpoint_0.pt \
+    --trainer_type regressor \
+    --image_feature_path video_features \
+    --log-level DEBUG
 ```
 
 View the predictions

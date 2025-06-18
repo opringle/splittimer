@@ -1,15 +1,24 @@
+from collections import defaultdict
 from enum import Enum
+import logging
 from typing import Any, List, Dict, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from torch.utils.data import DataLoader
 
 from config import Config
+from sample_generator.sample_generator_regression import RegressionSampleGenerator
+from utils import frame_idx_to_timecode, get_video_file_path, get_video_fps_and_total_frames, timecode_to_frames
 from .interface import Trainer
 from tqdm import tqdm
+
+
+class InteractionType(Enum):
+    DOT = 'dot'
+    MLP = 'mlp'
 
 
 class RegressionDataset(Dataset):
@@ -39,6 +48,11 @@ class RegressionTrainer(Trainer):
         parser.add_argument('--post_lstm_sizes', type=str, default=None)
         parser.add_argument('--hidden_size', type=int, default=256)
         parser.add_argument('--dropout', type=float, default=0.0)
+        parser.add_argument('--image_feature_path', type=str, required=True)
+        parser.add_argument('--add_position_feature',
+                            action='store_true', default=False)
+        parser.add_argument('--add_percent_completion_feature',
+                            action='store_true', default=False)
 
     @staticmethod
     def from_args(args: Any, dataloader: DataLoader) -> 'Trainer':
@@ -48,22 +62,34 @@ class RegressionTrainer(Trainer):
     ### Initialization ###
     def __init__(self, args=None, dataloader=None, model=None, optimizer=None, device=None):
         """Initialize the trainer with args and dataloader or pre-loaded model and optimizer."""
-        if model is not None and optimizer is not None and device is not None:
+        if args is None:
+            raise ValueError("args must be provided and cannot be None.")
+        self.args = args
+        self.device = device if device is not None else args.device
+        self.clip_length = getattr(args, 'clip_length', None)
+
+        if model is not None and optimizer is not None:
             self.model = model
             self.optimizer = optimizer
-            self.device = device
+            self.image_feature_path = args.image_feature_path
+            self.add_position_feature = args.add_position_feature
+            self.add_percent_completion_feature = args.add_percent_completion_feature
+
         else:
-            if args is None or dataloader is None:
+            if dataloader is None:
                 raise ValueError(
-                    "args and dataloader must be provided if model and optimizer are not.")
-            self.args = args
-            self.device = args.device
+                    "dataloader must be provided if model and optimizer are not.")
             compress_sizes = [int(x) for x in args.compress_sizes.split(
                 ',')] if args.compress_sizes else []
             post_lstm_sizes = [int(x) for x in args.post_lstm_sizes.split(
                 ',')] if args.post_lstm_sizes else []
             clip1, clip2, _ = next(iter(dataloader))
             _, B, F, input_size = clip1.shape
+            self.clip_length = F
+            self.image_feature_path = args.image_feature_path
+            self.add_position_feature = args.add_position_feature
+            self.add_percent_completion_feature = args.add_percent_completion_feature
+
             self.model = RegressionModel(
                 input_size=input_size,
                 hidden_size=args.hidden_size,
@@ -78,20 +104,37 @@ class RegressionTrainer(Trainer):
 
     ### Instance Methods ###
     def save(self, dir: str, checkpoint_idx: int) -> None:
-        """Save the trainer's state to a checkpoint file."""
+        """Save the trainer's state to a checkpoint file, including args and clip_length."""
         path = f"{dir}/checkpoint_{checkpoint_idx}.pt"
-        self.model.save(path, checkpoint_idx, self.optimizer)
+        args_dict = vars(self.args).copy()
+        if self.clip_length is not None:
+            args_dict['clip_length'] = self.clip_length
+        additional_info = {'args': args_dict}
+        self.model.save(path, checkpoint_idx, self.optimizer, additional_info)
 
     @staticmethod
     def load(checkpoint_path: str, device: str) -> Tuple['Trainer', int]:
-        """Load the trainer from a checkpoint file."""
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model, epoch, optimizer_state_dict = RegressionModel.load(
-            checkpoint_path, device)
+        """Load the trainer from a checkpoint file, using saved args."""
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model_config = checkpoint['model_config']
+        interaction_type = InteractionType(model_config['interaction_type'])
+        model = RegressionModel(
+            input_size=model_config['input_size'],
+            hidden_size=model_config['hidden_size'],
+            interaction_type=interaction_type,
+            bidirectional=model_config['bidirectional'],
+            compress_sizes=model_config['compress_sizes'],
+            post_lstm_sizes=model_config['post_lstm_sizes'],
+            dropout=model_config['dropout']
+        ).to(device)
+        model.load_state_dict(checkpoint['model_state_dict'])
         optimizer = torch.optim.Adam(model.parameters())
-        optimizer.load_state_dict(optimizer_state_dict)
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        args_dict = checkpoint['args']
+        args = Namespace(**args_dict)
         trainer = RegressionTrainer(
-            model=model, optimizer=optimizer, device=device)
+            args=args, model=model, optimizer=optimizer, device=device)
+        epoch = checkpoint['epoch']
         return trainer, epoch
 
     @staticmethod
@@ -102,7 +145,7 @@ class RegressionTrainer(Trainer):
 
     @staticmethod
     def compute_metrics(preds, labels):
-        """Compute classification metrics including precision, recall, F1 by class and macro averages."""
+        """Compute regression metrics including Mean Absolute Error."""
         preds = np.array(preds)
         labels = np.array(labels)
         metrics = {}
@@ -153,14 +196,97 @@ class RegressionTrainer(Trainer):
         metrics['Mean Squared Error'] = avg_loss
         return metrics
 
-    # TODO: implement
-    def predict_splits(self, config: Config, track_id: str, source_rider_id: str, target_rider_id: str) -> List[str]:
-        pass
+    def predict_timecodes(self, track_id: str, source_rider_id: str, source_timecodes: List[str], target_rider_id: str) -> List[str]:
+        """Predict target timecodes corresponding to source timecodes using the trained regression model.
 
+        Args:
+            track_id (str): Identifier for the track.
+            source_rider_id (str): Identifier for the source rider.
+            source_timecodes (List[str]): List of source timecodes to predict from.
+            target_rider_id (str): Identifier for the target rider.
 
-class InteractionType(Enum):
-    DOT = 'dot'
-    MLP = 'mlp'
+        Returns:
+            List[str]: List of predicted target timecodes, or None if prediction is not possible.
+        """
+        self.model.eval()
+        sample_generator = RegressionSampleGenerator(args=Namespace(**{
+            'F': self.clip_length,
+            'image_feature_path': self.image_feature_path,
+            'add_position_feature': self.add_position_feature,
+            'add_percent_completion_feature': self.add_percent_completion_feature,
+        }))
+        video_feature_cache = {}
+        source_video_path = get_video_file_path(track_id, source_rider_id)
+        source_fps, _ = get_video_fps_and_total_frames(source_video_path)
+        target_video_path = get_video_file_path(track_id, target_rider_id)
+        target_fps, target_total_frames = get_video_fps_and_total_frames(
+            target_video_path)
+
+        predictions = defaultdict(list)
+        batch_size = 32
+        samples = []
+
+        # ignore the first split
+        for source_timecode in source_timecodes:
+            v1_frame_idx = timecode_to_frames(source_timecode, source_fps)
+            for v2_frame_idx in range(target_total_frames):
+                if v1_frame_idx < self.clip_length - 1 or v2_frame_idx < self.clip_length - 1:
+                    continue
+                row_dict = {
+                    'track_id': track_id,
+                    'v1_rider_id': source_rider_id,
+                    'v2_rider_id': target_rider_id,
+                    'v1_frame_idx': v1_frame_idx,
+                    'v2_frame_idx': v2_frame_idx,
+                    'label': 0.0,  # dummy value
+                }
+                clip1, clip2, _ = sample_generator.get_features(
+                    video_feature_cache, **row_dict)
+                samples.append((source_timecode, v2_frame_idx, clip1, clip2))
+                if len(samples) == batch_size:
+                    clip1_batch = torch.stack(
+                        [torch.from_numpy(s[2]) for s in samples]).to(self.device)
+                    clip2_batch = torch.stack(
+                        [torch.from_numpy(s[3]) for s in samples]).to(self.device)
+                    with torch.no_grad():
+                        outputs = self.model(clip1_batch, clip2_batch)
+                        offsets = outputs.squeeze().cpu().numpy()
+                    for (stc, v2_idx, _, _), offs in zip(samples, offsets):
+                        predictions[stc].append((v2_idx, offs))
+                    samples = []
+
+        # Process remaining samples
+        if samples:
+            clip1_batch = torch.stack(
+                [torch.from_numpy(s[2]) for s in samples]).to(self.device)
+            clip2_batch = torch.stack(
+                [torch.from_numpy(s[3]) for s in samples]).to(self.device)
+            with torch.no_grad():
+                outputs = self.model(clip1_batch, clip2_batch)
+                offsets = outputs.squeeze().cpu().numpy()
+            for (stc, v2_idx, _, _), offs in zip(samples, offsets):
+                predictions[stc].append((v2_idx, offs))
+
+        # Get lowest offset prediction per source_timecode
+        predicted_frame_indices = {}
+        for stc, preds in predictions.items():
+            if preds:
+                v2_idx, _ = min(preds, key=lambda x: abs(x[1]))
+                predicted_frame_indices[stc] = v2_idx
+            else:
+                predicted_frame_indices[stc] = None
+
+        # Convert to timecodes
+        predicted_timecodes = []
+        for stc in source_timecodes:
+            v2_frame_idx = predicted_frame_indices.get(stc)
+            if v2_frame_idx is not None:
+                timecode = frame_idx_to_timecode(v2_frame_idx, target_fps)
+                predicted_timecodes.append(timecode)
+            else:
+                predicted_timecodes.append(None)
+
+        return predicted_timecodes
 
 
 class RegressionModel(nn.Module):
@@ -174,7 +300,7 @@ class RegressionModel(nn.Module):
         self.dropout = dropout
         self.interaction_type = interaction_type
 
-        # Compression layers (same for both interaction types)
+        # Compression layers
         if compress_sizes:
             layers = []
             in_size = input_size
@@ -190,11 +316,11 @@ class RegressionModel(nn.Module):
             self.compression = nn.Identity()
             lstm_input_size = input_size
 
-        # LSTM layer (same for both interaction types)
+        # LSTM layer
         self.lstm = nn.LSTM(lstm_input_size, hidden_size,
                             batch_first=True, bidirectional=bidirectional)
 
-        # Configure interaction-specific layers
+        # Interaction layers
         if self.interaction_type == InteractionType.MLP:
             lstm_output_size = 2 * hidden_size if bidirectional else hidden_size
             concat_size = 2 * lstm_output_size
@@ -219,11 +345,9 @@ class RegressionModel(nn.Module):
             raise ValueError("Invalid interaction_type")
 
     def forward(self, clip1, clip2):
-        # Compress input clips
         compressed_clip1 = self.compression(clip1)
         compressed_clip2 = self.compression(clip2)
 
-        # Get LSTM outputs
         if self.bidirectional:
             _, (h_n, _) = self.lstm(compressed_clip1)
             h1 = torch.cat((h_n[-2], h_n[-1]), dim=1)
@@ -235,7 +359,6 @@ class RegressionModel(nn.Module):
             _, (h2, _) = self.lstm(compressed_clip2)
             h2 = h2[-1]
 
-        # Handle interaction based on type
         if self.interaction_type == InteractionType.MLP:
             combined = torch.cat((h1, h2), dim=1)
             post_lstm_output = self.post_lstm(combined)
@@ -247,7 +370,7 @@ class RegressionModel(nn.Module):
             raise ValueError("Invalid interaction_type")
         return output
 
-    def save(self, path, epoch, optimizer):
+    def save(self, path, epoch, optimizer, additional_info=None):
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.state_dict(),
@@ -263,6 +386,8 @@ class RegressionModel(nn.Module):
                 'interaction_type': self.interaction_type.value,
             }
         }
+        if additional_info:
+            checkpoint.update(additional_info)
         torch.save(checkpoint, path)
 
     @classmethod
