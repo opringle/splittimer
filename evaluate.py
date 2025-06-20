@@ -31,7 +31,7 @@ def main():
     parser.add_argument('--sourceRiderId', type=str,
                         required=True, help='Source rider identifier')
     parser.add_argument('--targetRiderIds', type=str, nargs='+',
-                        required=True, help='Riders to find splits for')
+                        required=False, help='Riders to find splits for')
     parser.add_argument('--checkpoint_path', type=str,
                         required=True, help='Path to the model checkpoint file')
     parser.add_argument('--device', type=str, default=get_default_device_name(),
@@ -54,8 +54,16 @@ def main():
 
     source_timecodes = config.get_timecodes(args.trackId, args.sourceRiderId)
     source_timecodes_sliced = source_timecodes[1:]  # Ignore the first split
+
+    target_rider_ids = args.targetRiderIds
+    if not target_rider_ids:
+        logging.info(f"No target rider IDs specified. Extracting...")
+        target_rider_ids = [rid for rid in config.get_rider_ids(
+            args.trackId) if rid != args.sourceRiderId]
+    logging.info(f"Predicting split times for riders {target_rider_ids}")
+
     target_rid_to_timecodes = {rid: config.get_timecodes(
-        args.trackId, rid) for rid in args.targetRiderIds}
+        args.trackId, rid) for rid in target_rider_ids}
 
     predictions_dict = {}
     mean_absolute_error_sum = 0

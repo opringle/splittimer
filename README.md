@@ -1,19 +1,21 @@
 ## Thoughts
 
-Could I efficiently construct batches on the fly? That way I wouldn't need duplicate features stored on disk.
-Alternatively I could have each clips features stored once. Then with some smarter dataloading I could read from disk.
+- Disk storage is limitation for frame offset model.
+- I could write features for each sample at every index, then construct batches on the fly
+- That way I wouldn't need duplicate sample features stored on disk
+- I should only do this if the regressor performs better with more data
 
 ## TODO
 
-- do not pass training args to classes without naming them
-- add full eval to tensorboard
+- achieve best val loss on regressor
 - annotate more videos (ews runs too)
 
 ```bash
 # best combo: step 7 (epoch 8) 0.905 macro F1 score on validation data
 ./scripts/run_pipeline_classifier.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 
-./scripts/run_pipeline_regressor.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 3 --no-add_position_feature --no-add_percent_completion_feature
+# best
+./scripts/run_pipeline_regressor.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 4 --no-add_position_feature --no-add_percent_completion_feature
 ```
 
 Search for best hyperparams over entire training pipeline
@@ -35,7 +37,7 @@ Search for best hyperparams over entire training pipeline
   --beta_split_0_range 0.5:0.1:0.5 \
   --beta_range 0.5:0.1:0.5 \
   --clip_length_range 50:1:50 \
-  --num_augmented_range 2:2:10 \
+  --num_augmented_range 4:1:4 \
   --add_position_feature_values true false \
   --add_percent_completion_feature_values true false
 ```
@@ -160,7 +162,7 @@ python preprocess_videos_into_samples.py \
     --log-level DEBUG
 ```
 
-Train and evaluate a model on the data
+Train a model on the data
 
 ```bash
 # classification
@@ -210,8 +212,7 @@ python evaluate.py \
     predictions.json \
     --trackId mont_sainte_anne_2024 \
     --sourceRiderId loic_bruni \
-    --targetRiderIds troy_brosnan lachlan_stevens_mcnab max_alran vali_holl \
-    --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250618_073653/checkpoints/checkpoint_2.pt \
+    --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250619_232956/checkpoints/checkpoint_2.pt \
     --trainer_type classifier \
     --image_feature_path video_features \
     --log-level DEBUG
@@ -223,8 +224,7 @@ python evaluate.py \
     predictions.json \
     --trackId leogang_2025 \
     --sourceRiderId asa_vermette \
-    --targetRiderIds jordan_williams gracey_hemstreet laurie_greenland vali_holl \
-    --checkpoint_path ./artifacts/experiment_20250618_071021/checkpoints/checkpoint_0.pt \
+    --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_4_nopos_nopct_20250619_173543/checkpoints/checkpoint_0.pt \
     --trainer_type regressor \
     --image_feature_path video_features \
     --log-level DEBUG

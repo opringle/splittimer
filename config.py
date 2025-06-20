@@ -32,6 +32,9 @@ class Config:
     def get_unique_track_ids(self):
         return sorted(set(video["trackId"] for video in self.videos))
 
+    def get_rider_ids(self, track_id: str) -> List[str]:
+        return [v['riderId'] for v in self.videos if v['trackId'] == track_id]
+
     def get_timecodes(self, track_id: str, rider_id: str) -> List[str]:
         matching_videos = [
             video for video in self.videos
