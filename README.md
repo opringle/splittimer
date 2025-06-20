@@ -11,10 +11,14 @@
 - annotate more videos (ews runs too)
 
 ```bash
-# best combo: step 7 (epoch 8) 0.905 macro F1 score on validation data
+# best classifier:
+# Val: mean average split prediction error (seconds) = 63.257
+# Train: ean average split prediction error (seconds) = 114.744
 ./scripts/run_pipeline_classifier.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 
-# best
+# best regressor:
+# Val: mean average split prediction error (seconds) = 88.074
+# Train: ean average split prediction error (seconds)
 ./scripts/run_pipeline_regressor.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 4 --no-add_position_feature --no-add_percent_completion_feature
 ```
 
@@ -211,10 +215,10 @@ python evaluate.py \
     video_features \
     predictions.json \
     --trackId mont_sainte_anne_2024 \
-    --sourceRiderId loic_bruni \
-    --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250619_232956/checkpoints/checkpoint_2.pt \
+    --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250620_154155/checkpoints/checkpoint_4.pt \
     --trainer_type classifier \
     --image_feature_path video_features \
+    --seed 1 \
     --log-level DEBUG
 
 # regressor
@@ -222,11 +226,11 @@ python evaluate.py \
     video_config.yaml \
     video_features \
     predictions.json \
-    --trackId leogang_2025 \
-    --sourceRiderId asa_vermette \
-    --checkpoint_path artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_4_nopos_nopct_20250619_173543/checkpoints/checkpoint_0.pt \
+    --trackId mont_sainte_anne_2024 \
+    --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_4_nopos_nopct_20250620_155805/checkpoints/checkpoint_0.pt \
     --trainer_type regressor \
     --image_feature_path video_features \
+    --seed 1 \
     --log-level DEBUG
 ```
 

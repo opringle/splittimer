@@ -1,5 +1,6 @@
 from collections import defaultdict
 import logging
+import random
 from typing import List
 import torch
 import argparse
@@ -25,13 +26,8 @@ def main():
     parser.add_argument('image_feature_path', type=str,
                         help="Path to directory of clip features")
     parser.add_argument('output_file', type=str, help="Path to output file")
-
     parser.add_argument('--trackId', type=str,
                         required=True, help='Track identifier')
-    parser.add_argument('--sourceRiderId', type=str,
-                        required=True, help='Source rider identifier')
-    parser.add_argument('--targetRiderIds', type=str, nargs='+',
-                        required=False, help='Riders to find splits for')
     parser.add_argument('--checkpoint_path', type=str,
                         required=True, help='Path to the model checkpoint file')
     parser.add_argument('--device', type=str, default=get_default_device_name(),
@@ -40,6 +36,8 @@ def main():
                         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     parser.add_argument('--trainer_type', type=str, required=True,
                         help='Type of model to train')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed for reproducibility')
 
     args, _ = parser.parse_known_args()
     TrainerClass = get_trainer_class(args.trainer_type)
@@ -48,19 +46,22 @@ def main():
     args = parser.parse_args()
 
     setup_logging(args.log_level)
+    setup_seed(args.seed)
     config = Config(args.config_path)
 
     trainer, _ = TrainerClass.load(args.checkpoint_path, args.device)
 
-    source_timecodes = config.get_timecodes(args.trackId, args.sourceRiderId)
-    source_timecodes_sliced = source_timecodes[1:]  # Ignore the first split
+    riders_for_track = config.get_rider_ids(args.trackId)
+    assert len(
+        riders_for_track) >= 2, f"Only {len(riders_for_track)} riders have runs on track {args.trackId}"
+    random.shuffle(riders_for_track)
+    source_rider_id = riders_for_track[0]
+    target_rider_ids = riders_for_track[1:]
+    logging.info(
+        f"Predicting split times given source rider {source_rider_id} for target riders {target_rider_ids}")
 
-    target_rider_ids = args.targetRiderIds
-    if not target_rider_ids:
-        logging.info(f"No target rider IDs specified. Extracting...")
-        target_rider_ids = [rid for rid in config.get_rider_ids(
-            args.trackId) if rid != args.sourceRiderId]
-    logging.info(f"Predicting split times for riders {target_rider_ids}")
+    source_timecodes = config.get_timecodes(args.trackId, source_rider_id)
+    source_timecodes_sliced = source_timecodes[1:]  # Ignore the first split
 
     target_rid_to_timecodes = {rid: config.get_timecodes(
         args.trackId, rid) for rid in target_rider_ids}
@@ -75,7 +76,7 @@ def main():
         actual_timecodes_sliced = actual_timecodes[1:]
 
         predicted_timecodes = trainer.predict_timecodes(
-            args.trackId, args.sourceRiderId, source_timecodes_sliced, target_rider_id)
+            args.trackId, source_rider_id, source_timecodes_sliced, target_rider_id)
         predictions_dict[target_rider_id] = predicted_timecodes
 
         mean_absolute_error_sum += mean_absolute_error_seconds(
@@ -87,7 +88,7 @@ def main():
 
     output_data = {
         "trackId": args.trackId,
-        "sourceRiderId": args.sourceRiderId,
+        "sourceRiderId": source_rider_id,
         "sourceTimecodes": source_timecodes_sliced,
         "predictions": predictions_dict
     }
