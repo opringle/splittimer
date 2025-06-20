@@ -20,14 +20,14 @@ def worker_init_fn(worker_id):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate a model's performance at finding splits in a target video'")
+        description="Evaluate a model's performance at finding splits in target videos for multiple tracks")
     parser.add_argument('config_path', type=str,
                         help='Path to video_config.yaml file')
     parser.add_argument('image_feature_path', type=str,
                         help="Path to directory of clip features")
     parser.add_argument('output_file', type=str, help="Path to output file")
-    parser.add_argument('--trackId', type=str,
-                        required=True, help='Track identifier')
+    parser.add_argument('--trackIds', type=str, nargs='+', required=True,
+                        help='List of track identifiers')
     parser.add_argument('--checkpoint_path', type=str,
                         required=True, help='Path to the model checkpoint file')
     parser.add_argument('--device', type=str, default=get_default_device_name(),
@@ -51,49 +51,83 @@ def main():
 
     trainer, _ = TrainerClass.load(args.checkpoint_path, args.device)
 
-    riders_for_track = config.get_rider_ids(args.trackId)
-    assert len(
-        riders_for_track) >= 2, f"Only {len(riders_for_track)} riders have runs on track {args.trackId}"
-    random.shuffle(riders_for_track)
-    source_rider_id = riders_for_track[0]
-    target_rider_ids = riders_for_track[1:]
-    logging.info(
-        f"Predicting split times given source rider {source_rider_id} for target riders {target_rider_ids}")
-
-    source_timecodes = config.get_timecodes(args.trackId, source_rider_id)
-    source_timecodes_sliced = source_timecodes[1:]  # Ignore the first split
-
-    target_rid_to_timecodes = {rid: config.get_timecodes(
-        args.trackId, rid) for rid in target_rider_ids}
-
-    predictions_dict = {}
-    mean_absolute_error_sum = 0
-    for target_rider_id, actual_timecodes in tqdm(target_rid_to_timecodes.items(), desc="Target rider predictions"):
-        target_video_path = get_video_file_path(args.trackId, target_rider_id)
-        target_fps, _ = get_video_fps_and_total_frames(target_video_path)
-
+    # Step 1: Precompute track-to-target rider IDs and necessary data
+    track_data = {}
+    for trackId in args.trackIds:
+        riders_for_track = config.get_rider_ids(trackId)
+        assert len(
+            riders_for_track) >= 2, f"Only {len(riders_for_track)} riders have runs on track {trackId}"
+        random.shuffle(riders_for_track)
+        source_rider_id = riders_for_track[0]
+        target_rider_ids = riders_for_track[1:]
+        source_timecodes = config.get_timecodes(trackId, source_rider_id)
         # Ignore the first split
-        actual_timecodes_sliced = actual_timecodes[1:]
+        source_timecodes_sliced = source_timecodes[1:]
+        target_rid_to_timecodes = {rid: config.get_timecodes(
+            # Ignore the first split
+            trackId, rid)[1:] for rid in target_rider_ids}
+        track_data[trackId] = {
+            'source_rider_id': source_rider_id,
+            'source_timecodes_sliced': source_timecodes_sliced,
+            'target_rid_to_timecodes': target_rid_to_timecodes
+        }
 
-        predicted_timecodes = trainer.predict_timecodes(
-            args.trackId, source_rider_id, source_timecodes_sliced, target_rider_id)
-        predictions_dict[target_rider_id] = predicted_timecodes
+    # Step 2: Compute total number of target riders to predict for
+    total_target_riders = sum(
+        len(data['target_rid_to_timecodes']) for data in track_data.values())
 
-        mean_absolute_error_sum += mean_absolute_error_seconds(
-            predicted_timecodes, actual_timecodes_sliced, target_fps)
+    # Step 3: Set up a single tqdm progress bar for all predictions
+    pbar = tqdm(total=total_target_riders,
+                desc="Overall target rider predictions")
 
-    metrics = {'macro_mean_absolute_error_seconds': mean_absolute_error_sum /
-               len(target_rid_to_timecodes)}
-    log_dict(f"Model achieves metrics:", metrics)
+    output_data_list = []
+    mae_track_list = []
 
-    output_data = {
-        "trackId": args.trackId,
-        "sourceRiderId": source_rider_id,
-        "sourceTimecodes": source_timecodes_sliced,
-        "predictions": predictions_dict
-    }
+    # Step 4: Process each track and update the progress bar
+    for trackId, data in track_data.items():
+        source_rider_id = data['source_rider_id']
+        source_timecodes_sliced = data['source_timecodes_sliced']
+        target_rid_to_timecodes = data['target_rid_to_timecodes']
+
+        predictions_dict = {}
+        mean_absolute_error_sum = 0
+        for target_rider_id, actual_timecodes_sliced in target_rid_to_timecodes.items():
+            logging.info(
+                f"{trackId}: source_rider_id {source_rider_id} target_rider_id {target_rider_id}")
+            target_video_path = get_video_file_path(trackId, target_rider_id)
+            target_fps, _ = get_video_fps_and_total_frames(target_video_path)
+
+            predicted_timecodes = trainer.predict_timecodes(
+                trackId, source_rider_id, source_timecodes_sliced, target_rider_id)
+            predictions_dict[target_rider_id] = predicted_timecodes
+
+            mae = mean_absolute_error_seconds(
+                predicted_timecodes, actual_timecodes_sliced, target_fps)
+            mean_absolute_error_sum += mae
+
+            # Update the progress bar for each prediction
+            pbar.update(1)
+
+        mae_track = mean_absolute_error_sum / len(target_rid_to_timecodes)
+        logging.info(f"For track {trackId}, MAE: {mae_track:.4f} seconds")
+        mae_track_list.append(mae_track)
+
+        output_data = {
+            "trackId": trackId,
+            "sourceRiderId": source_rider_id,
+            "sourceTimecodes": source_timecodes_sliced,
+            "predictions": predictions_dict
+        }
+        output_data_list.append(output_data)
+
+    pbar.close()
+
+    # Step 5: Compute and log overall MAE
+    overall_mae = sum(mae_track_list) / len(mae_track_list)
+    logging.info(f"Overall MAE across all tracks: {overall_mae:.4f} seconds")
+
     with open(args.output_file, 'w') as f:
-        json.dump(output_data, f, indent=4)
+        json.dump(output_data_list, f, indent=4)
     logging.info(f"Predictions written to {args.output_file}")
 
 

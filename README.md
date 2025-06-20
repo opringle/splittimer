@@ -7,18 +7,25 @@
 
 ## TODO
 
-- achieve best val loss on regressor
 - annotate more videos (ews runs too)
+- consider LLM for video encoding
 
 ```bash
 # best classifier:
-# Val: mean average split prediction error (seconds) = 63.257
-# Train: ean average split prediction error (seconds) = 114.744
+# Val mont_sainte_anne_2024: mean average split prediction error (seconds) = 63.257
+# Train loudenvielle_2025: mean average split prediction error (seconds) = 114.744
+# Train leogang_2025: mean average split prediction error (seconds) = 29.110
+# Train poland_2025: mean average split prediction error (seconds) = 45.766
+# Train val_di_sole_2024: mean average split prediction error (seconds) = 46.440
 ./scripts/run_pipeline_classifier.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 50 --no-add_position_feature --no-add_percent_completion_feature
 
 # best regressor:
-# Val: mean average split prediction error (seconds) = 88.074
-# Train: ean average split prediction error (seconds)
+# Val mont_sainte_anne_2024: mean average split prediction error (seconds) = 88.074
+# Train loudenvielle_2025: mean average split prediction error (seconds) = 91.060
+# Train leogang_2025: mean average split prediction error (seconds) = 81.542
+# Train poland_2025: mean average split prediction error (seconds) = 59.225
+# Train val_di_sole_2024: mean average split prediction error (seconds) = 82.391
+
 ./scripts/run_pipeline_regressor.sh --alpha_split_0 0.5 --alpha 0.5 --beta_split_0 0.5 --beta 0.5 --clip_length 50 --num_augmented 4 --no-add_position_feature --no-add_percent_completion_feature
 ```
 
@@ -214,7 +221,7 @@ python evaluate.py \
     video_config.yaml \
     video_features \
     predictions.json \
-    --trackId mont_sainte_anne_2024 \
+    --trackIds val_di_sole_2024 leogang_2025 \
     --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250620_154155/checkpoints/checkpoint_4.pt \
     --trainer_type classifier \
     --image_feature_path video_features \
@@ -226,7 +233,7 @@ python evaluate.py \
     video_config.yaml \
     video_features \
     predictions.json \
-    --trackId mont_sainte_anne_2024 \
+    --trackIds val_di_sole_2024 leogang_2025 \
     --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_4_nopos_nopct_20250620_155805/checkpoints/checkpoint_0.pt \
     --trainer_type regressor \
     --image_feature_path video_features \
