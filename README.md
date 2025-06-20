@@ -221,7 +221,6 @@ python evaluate.py \
     video_config.yaml \
     video_features \
     predictions.json \
-    --trackIds val_di_sole_2024 leogang_2025 \
     --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_50_nopos_nopct_20250620_154155/checkpoints/checkpoint_4.pt \
     --trainer_type classifier \
     --image_feature_path video_features \
@@ -233,7 +232,6 @@ python evaluate.py \
     video_config.yaml \
     video_features \
     predictions.json \
-    --trackIds val_di_sole_2024 leogang_2025 \
     --checkpoint_path ./artifacts/alpha0_0_5_alpha_0_5_beta0_0_5_beta_0_5_frames_50_augmented_4_nopos_nopct_20250620_155805/checkpoints/checkpoint_0.pt \
     --trainer_type regressor \
     --image_feature_path video_features \

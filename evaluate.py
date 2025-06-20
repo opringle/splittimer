@@ -26,8 +26,8 @@ def main():
     parser.add_argument('image_feature_path', type=str,
                         help="Path to directory of clip features")
     parser.add_argument('output_file', type=str, help="Path to output file")
-    parser.add_argument('--trackIds', type=str, nargs='+', required=True,
-                        help='List of track identifiers')
+    parser.add_argument('--trackIds', type=str, nargs='*', default=[],
+                        help='List of track identifiers. If not provided or empty, all unique track IDs will be used.')
     parser.add_argument('--checkpoint_path', type=str,
                         required=True, help='Path to the model checkpoint file')
     parser.add_argument('--device', type=str, default=get_default_device_name(),
@@ -50,6 +50,13 @@ def main():
     config = Config(args.config_path)
 
     trainer, _ = TrainerClass.load(args.checkpoint_path, args.device)
+
+    if not args.trackIds:
+        args.trackIds = config.get_unique_track_ids()
+        logging.warning(
+            f"No track IDs provided. Using all unique track IDs: {args.trackIds}")
+    else:
+        args.trackIds = list(set(args.trackIds))
 
     # Step 1: Precompute track-to-target rider IDs and necessary data
     track_data = {}
@@ -92,8 +99,8 @@ def main():
         predictions_dict = {}
         mean_absolute_error_sum = 0
         for target_rider_id, actual_timecodes_sliced in target_rid_to_timecodes.items():
-            logging.info(
-                f"{trackId}: source_rider_id {source_rider_id} target_rider_id {target_rider_id}")
+            logging.debug(
+                f"\ttrack_id: {trackId}\n\tsource_rider_id {source_rider_id}\n\ttarget_rider_id {target_rider_id}")
             target_video_path = get_video_file_path(trackId, target_rider_id)
             target_fps, _ = get_video_fps_and_total_frames(target_video_path)
 
